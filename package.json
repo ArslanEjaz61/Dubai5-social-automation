@@ -1,0 +1,30 @@
+{
+  "name": "dubai5-social-automation",
+  "version": "1.0.0",
+  "description": "Automated social media posting for Dubai5 Foresight",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "setup": "node setup.js",
+    "scrape": "node scraper.js",
+    "post:linkedin": "node posters/linkedin.js --test",
+    "post:twitter": "node posters/twitter.js --test",
+    "post:facebook": "node posters/facebook.js --test",
+    "post:instagram": "node posters/instagram.js --test",
+    "dashboard": "node dashboard-server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.103.0",
+    "axios": "^1.7.0",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "fs-extra": "^11.2.0",
+    "inquirer": "^8.2.6",
+    "mongodb": "^7.1.1",
+    "node-cron": "^3.0.3",
+    "puppeteer-core": "^22.0.0",
+    "winston": "^3.13.0",
+    "winston-daily-rotate-file": "^5.0.0"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "2026-04-11": {
+    "0": {
+      "twitter": {
+        "success": true,
+        "timestamp": "2026-04-11T14:25:46.904Z",
+        "error": null
+      },
+      "facebook": {
+        "success": true,
+        "timestamp": "2026-04-11T15:06:49.452Z",
+        "error": null
+      }
+    },
+    "1": {
+      "linkedin": {
+        "success": true,
+        "timestamp": "2026-04-11T14:02:32.203Z",
+        "error": null
+      },
+      "twitter": {
+        "success": false,
+        "timestamp": "2026-04-11T14:30:52.848Z",
+        "error": "Tweet text area not found after image upload"
+      }
+    },
+    "2": {
+      "linkedin": {
+        "success": false,
+        "timestamp": "2026-04-11T14:03:05.442Z",
+        "error": "net::ERR_INSUFFICIENT_RESOURCES at https://www.linkedin.com/feed/"
+      },
+      "twitter": {
+        "success": false,
+        "timestamp": "2026-04-11T14:31:38.332Z",
+        "error": "Tweet text area not found after image upload"
+      }
+    },
+    "3": {
+      "twitter": {
+        "success": false,
+        "timestamp": "2026-04-11T14:32:23.192Z",
+        "error": "Tweet text area not found after image upload"
+      }
+    },
+    "4": {
+      "twitter": {
+        "success": false,
+        "timestamp": "2026-04-11T14:33:10.110Z",
+        "error": "Tweet text area not found after image upload"
+      }
+    }
+  }
+}
