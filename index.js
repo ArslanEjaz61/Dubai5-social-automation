@@ -106,22 +106,44 @@ async function postArticle(articleIndex) {
 }
 
 /**
- * Daily scrape job — runs at 6:00 AM Dubai time
+ * Daily scrape job — runs at 6:05 AM Dubai time
+ * Retries every 5 minutes if fewer than 5 articles are found
  */
-async function dailyScrape() {
-  logger.info('\n🌅  6:00 AM — Starting daily scrape of dubai5.space');
+async function dailyScrape(retryCount = 0) {
+  const MAX_RETRIES = 6;
+  const RETRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+
+  logger.info(`\n🌅  6:05 AM (Try ${retryCount + 1}) — Starting daily scrape of dubai5.space`);
+
   try {
     const articles = await scrapeArticles();
-    logger.info(`✅  Scrape done: ${articles.length} articles queued`);
+    
+    if (articles.length >= 5) {
+      logger.info(`✅  Scrape successful: ${articles.length} articles queued`);
+      return articles;
+    }
+
+    if (retryCount < MAX_RETRIES) {
+      logger.warn(`⚠️  Only found ${articles.length} articles. Retrying in 5 minutes... (${retryCount + 1}/${MAX_RETRIES})`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      return dailyScrape(retryCount + 1);
+    } else {
+      logger.error(`❌  Failed to reach 5 articles after ${MAX_RETRIES} retries. Proceeding with ${articles.length} articles.`);
+      return articles;
+    }
   } catch (err) {
-    logger.error('Daily scrape failed:', err);
+    logger.error(`Daily scrape attempt ${retryCount + 1} failed:`, err);
+    if (retryCount < MAX_RETRIES) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      return dailyScrape(retryCount + 1);
+    }
   }
 }
 
 // ============================================================
 //  CRON SCHEDULES  (Dubai Time = UTC+4)
 // ============================================================
-cron.schedule('0 6  * * *', dailyScrape,            { timezone: TIMEZONE }); // 6:00 AM scrape
+cron.schedule('5 6  * * *', dailyScrape,            { timezone: TIMEZONE }); // 6:05 AM scrape
 cron.schedule('0 7  * * *', () => postArticle(0),   { timezone: TIMEZONE }); // 7:00 AM article 1
 cron.schedule('0 8  * * *', () => postArticle(1),   { timezone: TIMEZONE }); // 8:00 AM article 2
 cron.schedule('0 9  * * *', () => postArticle(2),   { timezone: TIMEZONE }); // 9:00 AM article 3
@@ -130,7 +152,7 @@ cron.schedule('0 11 * * *', () => postArticle(4),   { timezone: TIMEZONE }); // 
 // ============================================================
 
 logger.info('\n📅  Schedule (Dubai Time / UTC+4):');
-logger.info('     6:00 AM  → Scrape dubai5.space');
+logger.info('     6:05 AM  → Scrape dubai5.space (with retries)');
 logger.info('     7:00 AM  → Post Article 1 → All platforms');
 logger.info('     8:00 AM  → Post Article 2 → All platforms');
 logger.info('     9:00 AM  → Post Article 3 → All platforms');
