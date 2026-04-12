@@ -144,11 +144,11 @@ async function dailyScrape(retryCount = 0) {
 //  CRON SCHEDULES  (Dubai Time = UTC+4)
 // ============================================================
 cron.schedule('5 6  * * *', () => dailyScrape(0),   { timezone: TIMEZONE }); // 6:05 AM scrape
-cron.schedule('0 7  * * *', () => postArticle(0),   { timezone: TIMEZONE }); // 7:00 AM article 1
-cron.schedule('0 8  * * *', () => postArticle(1),   { timezone: TIMEZONE }); // 8:00 AM article 2
-cron.schedule('0 9  * * *', () => postArticle(2),   { timezone: TIMEZONE }); // 9:00 AM article 3
-cron.schedule('0 10 * * *', () => postArticle(3),   { timezone: TIMEZONE }); // 10:00 AM article 4
-cron.schedule('0 11 * * *', () => postArticle(4),   { timezone: TIMEZONE }); // 11:00 AM article 5
+cron.schedule('0 12  * * *', () => postArticle(0),   { timezone: TIMEZONE }); // 12:00 PM article 1
+cron.schedule('10 12 * * *', () => postArticle(1),   { timezone: TIMEZONE }); // 12:10 PM article 2
+cron.schedule('20 12 * * *', () => postArticle(2),   { timezone: TIMEZONE }); // 12:20 PM article 3
+cron.schedule('30 12 * * *', () => postArticle(3),   { timezone: TIMEZONE }); // 12:30 PM article 4
+cron.schedule('40 12 * * *', () => postArticle(4),   { timezone: TIMEZONE }); // 12:40 PM article 5
 // ============================================================
 
 logger.info('\n📅  Schedule (Dubai Time / UTC+4):');
