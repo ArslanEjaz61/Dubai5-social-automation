@@ -153,11 +153,11 @@ cron.schedule('40 12 * * *', () => postArticle(4),   { timezone: TIMEZONE }); //
 
 logger.info('\n📅  Schedule (Dubai Time / UTC+4):');
 logger.info('     6:05 AM  → Scrape dubai5.space (with retries)');
-logger.info('     7:00 AM  → Post Article 1 → All platforms');
-logger.info('     8:00 AM  → Post Article 2 → All platforms');
-logger.info('     9:00 AM  → Post Article 3 → All platforms');
-logger.info('    10:00 AM  → Post Article 4 → All platforms');
-logger.info('    11:00 AM  → Post Article 5 → All platforms');
+logger.info('    12:00 PM  → Post Article 1 → All platforms');
+logger.info('    12:10 PM  → Post Article 2 → All platforms');
+logger.info('    12:20 PM  → Post Article 3 → All platforms');
+logger.info('    12:30 PM  → Post Article 4 → All platforms');
+logger.info('    12:40 PM  → Post Article 5 → All platforms');
 logger.info('\n🟢  Scheduler running. Ctrl+C to stop.\n');
 
 // Start dashboard
