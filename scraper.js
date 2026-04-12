@@ -140,7 +140,7 @@ async function scrapeArticles() {
   // Fetch latest 5 published articles regardless of specific date (gives the newest)
   let { data: articles, error } = await supabase
     .from('articles')
-    .select('id, headline, summary, social_caption, hero_image, brief_date, tags, category, signal_tag, impact_score, status, article_url')
+    .select('id, headline, summary, social_caption, hero_image, og_image, brief_date, tags, category, signal_tag, impact_score, status, article_url')
     .eq('status', 'published')
     .order('brief_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -166,6 +166,8 @@ async function scrapeArticles() {
 
   for (let i = 0; i < articles.length; i++) {
     const art = articles[i];
+    const imageToUse = art.og_image || art.hero_image;
+
     logger.info(`  [${i + 1}] "${art.headline?.substring(0, 65)}..."`);
     processed.push({
       index: i,
@@ -173,7 +175,7 @@ async function scrapeArticles() {
       title: art.headline,
       description: art.summary,
       socialCaption: buildSocialCaption(art),
-      imageUrl: art.hero_image,
+      imageUrl: imageToUse,
       localImagePath: null,
       articleUrl: getArticleUrl(art),
       category: art.category,
@@ -186,14 +188,16 @@ async function scrapeArticles() {
   }
 
   await saveQueue(processed);
-  logger.info(`✅ Queue saved (${processed.length} articles for ${today}) — downloading hero images…`);
+  logger.info(`✅ Queue saved (${processed.length} articles for ${today}) — downloading images…`);
 
   for (let i = 0; i < articles.length; i++) {
     const art = articles[i];
-    if (!art.hero_image) continue;
-    const ext = art.hero_image.split('.').pop().split('?')[0] || 'jpg';
+    const imageToUse = art.og_image || art.hero_image;
+    if (!imageToUse) continue;
+
+    const ext = imageToUse.split('.').pop().split('?')[0] || 'png';
     const filename = `${dateStr}-${art.id}.${ext}`;
-    processed[i].localImagePath = await downloadImage(art.hero_image, filename);
+    processed[i].localImagePath = await downloadImage(imageToUse, filename);
   }
 
   await saveQueue(processed);
