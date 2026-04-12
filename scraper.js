@@ -51,8 +51,13 @@ async function downloadImage(imageUrl, filename) {
   try {
     const filePath = path.join(IMAGES_DIR, filename);
     if (await fs.pathExists(filePath)) {
-      logger.info(`📷 Image cached: ${filename}`);
-      return filePath;
+      const stats = await fs.stat(filePath);
+      if (stats.size > 100 * 1024) {
+        logger.info(`📷 Image cached: ${filename} (${Math.round(stats.size/1024)}KB)`);
+        return filePath;
+      }
+      logger.warn(`⚠️ Cached image for ${filename} is too small (${stats.size} bytes). Re-downloading...`);
+      await fs.remove(filePath);
     }
     const response = await axios({
       method: 'GET',

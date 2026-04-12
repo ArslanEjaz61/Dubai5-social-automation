@@ -340,8 +340,13 @@ async function postToLinkedIn(article, articleIndex) {
       await screenshot(page, `${articleIndex}-ERR-no-publish-btn`);
       throw new Error('Could not find Publish button');
     }
-
-    await delay(5000, 8000);
+    await delay(2000, 4000);
+    // Wait up to 60s for modal to disappear (indicates post sent)
+    try {
+      await page.waitForSelector('.artdeco-modal', { hidden: true, timeout: 60000 });
+    } catch (e) {
+      logger.warn('⚠️ Modal did not close automatically — but post may have finished.');
+    }
     await screenshot(page, `${articleIndex}-7-done`);
 
     logger.info(`🎉 LinkedIn post #${articleIndex + 1} published successfully!`);
