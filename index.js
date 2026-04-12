@@ -143,7 +143,7 @@ async function dailyScrape(retryCount = 0) {
 // ============================================================
 //  CRON SCHEDULES  (Dubai Time = UTC+4)
 // ============================================================
-cron.schedule('5 6  * * *', dailyScrape,            { timezone: TIMEZONE }); // 6:05 AM scrape
+cron.schedule('5 6  * * *', () => dailyScrape(0),   { timezone: TIMEZONE }); // 6:05 AM scrape
 cron.schedule('0 7  * * *', () => postArticle(0),   { timezone: TIMEZONE }); // 7:00 AM article 1
 cron.schedule('0 8  * * *', () => postArticle(1),   { timezone: TIMEZONE }); // 8:00 AM article 2
 cron.schedule('0 9  * * *', () => postArticle(2),   { timezone: TIMEZONE }); // 9:00 AM article 3
