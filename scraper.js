@@ -32,6 +32,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const IMAGES_DIR = path.join(__dirname, 'state', 'images');
 fs.ensureDirSync(IMAGES_DIR);
 
+/** Max wall-clock wait for a full image stream (axios timeout may not cover slow bodies). */
+const IMAGE_DOWNLOAD_MS = 45_000;
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /** Get today's date in Dubai timezone (YYYY-MM-DD) */
@@ -59,14 +62,24 @@ async function downloadImage(imageUrl, filename) {
       headers: { 'User-Agent': 'Dubai5-SocialBot/1.0' }
     });
     await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try { response.data.destroy(); } catch (_) {}
+        reject(new Error(`image stream exceeded ${IMAGE_DOWNLOAD_MS}ms`));
+      }, IMAGE_DOWNLOAD_MS);
       const writer = fs.createWriteStream(filePath);
+      const done = (fn) => (arg) => {
+        clearTimeout(timer);
+        fn(arg);
+      };
       response.data.pipe(writer);
-      writer.on('finish', resolve);
-      writer.on('error', reject);
+      writer.on('finish', done(resolve));
+      writer.on('error', done(reject));
+      response.data.on('error', done(reject));
     });
     logger.info(`✅ Image downloaded: ${filename}`);
     return filePath;
   } catch (err) {
+    try { await fs.remove(filePath); } catch (_) {}
     logger.warn(`⚠️ Image download failed (${imageUrl}): ${err.message}`);
     return null;
   }
@@ -142,22 +155,13 @@ async function scrapeArticles() {
 
   logger.info(`📰 Found ${articles.length} latest articles from Supabase`);
 
-  // ── Process each article ───────────────────────────────────────
+  // ── Build queue rows first (no image I/O) so today's date is on disk before 7 AM posts ──
   const processed = [];
   const dateStr = today;
 
   for (let i = 0; i < articles.length; i++) {
     const art = articles[i];
     logger.info(`  [${i + 1}] "${art.headline?.substring(0, 65)}..."`);
-
-    // Download hero image — use article UUID for unique filenames
-    let localImagePath = null;
-    if (art.hero_image) {
-      const ext = art.hero_image.split('.').pop().split('?')[0] || 'jpg';
-      const filename = `${dateStr}-${art.id}.${ext}`;
-      localImagePath = await downloadImage(art.hero_image, filename);
-    }
-
     processed.push({
       index: i,
       id: art.id,
@@ -165,7 +169,7 @@ async function scrapeArticles() {
       description: art.summary,
       socialCaption: buildSocialCaption(art),
       imageUrl: art.hero_image,
-      localImagePath,
+      localImagePath: null,
       articleUrl: getArticleUrl(art),
       category: art.category,
       tags: art.tags || [],
@@ -174,6 +178,17 @@ async function scrapeArticles() {
       briefDate: art.brief_date,
       scrapedAt: new Date().toISOString()
     });
+  }
+
+  await saveQueue(processed);
+  logger.info(`✅ Queue saved (${processed.length} articles for ${today}) — downloading hero images…`);
+
+  for (let i = 0; i < articles.length; i++) {
+    const art = articles[i];
+    if (!art.hero_image) continue;
+    const ext = art.hero_image.split('.').pop().split('?')[0] || 'jpg';
+    const filename = `${dateStr}-${art.id}.${ext}`;
+    processed[i].localImagePath = await downloadImage(art.hero_image, filename);
   }
 
   await saveQueue(processed);
