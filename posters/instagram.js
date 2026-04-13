@@ -273,34 +273,37 @@ async function postToInstagram(article, articleIndex) {
 
     // ── Share ───────────────────────────────────────────────────
     logger.info('🚀 Sharing Instagram post...');
-    const shared = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
-      const shareBtn = btns.find(b => b.textContent.trim() === 'Share');
-      if (shareBtn) { shareBtn.click(); return true; }
-      return false;
-    });
-
-    if (!shared) throw new Error('Instagram Share button not found');
-
-    logger.info('⏳ Waiting for share confirmation...');
-    // Wait up to 60s strictly for the "Post Shared" confirmation
-    let confirmed = false;
-    try {
-      await page.waitForFunction(() => {
-        const text = document.body.innerText;
-        return text.includes('Your post has been shared') || text.includes('Post shared');
-      }, { timeout: 60000 });
-      confirmed = true;
-      logger.info('✅ Share confirmed! "Your post has been shared" detected.');
-    } catch (e) {
-      const stillHasDialog = await page.$('[role="dialog"]');
-      if (!stillHasDialog) {
-        logger.info('✅ Share confirmed! Dialog vanished (assuming success)');
-        confirmed = true;
-      } else {
-        await screenshot(page, `${articleIndex}-DEBUG-POST-STUCK`);
-        logger.warn('⚠️ Share button clicked but success message not detected and dialog still open.');
+    let shared = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+        const shareBtn = btns.find(b => b.textContent.trim() === 'Share');
+        if (shareBtn) shareBtn.click();
+      });
+      
+      logger.info(`⏳ Waiting for share confirmation (Attempt ${attempt}/3)...`);
+      try {
+        await page.waitForFunction(() => {
+          const text = document.body.innerText;
+          return text.includes('Your post has been shared') || text.includes('Post shared');
+        }, { timeout: 20000 });
+        shared = true;
+        logger.info('✅ Share confirmed! "Your post has been shared" detected.');
+        break;
+      } catch (e) {
+        const stillHasDialog = await page.$('[role="dialog"]');
+        if (!stillHasDialog) {
+          logger.info('✅ Share confirmed! Dialog vanished (assuming success)');
+          shared = true;
+          break;
+        }
+        logger.warn(`⚠️ Share attempt ${attempt} timed out. Dialog still open.`);
+        await screenshot(page, `${articleIndex}-DEBUG-ATTEMPT-${attempt}`);
       }
+    }
+
+    if (!shared) {
+      throw new Error('Instagram Share failed or timed out after 3 attempts');
     }
 
     await delay(3000, 5000); // Final buffer for safety
