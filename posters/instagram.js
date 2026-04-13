@@ -280,25 +280,28 @@ async function postToInstagram(article, articleIndex) {
         const debug = btns.map(b => b.textContent.trim());
         const shareBtn = btns.find(b => b.textContent.trim().toLowerCase() === 'share');
         if (!shareBtn) return { found: false, all: debug };
+        
+        const rect = shareBtn.getBoundingClientRect();
         return { 
           found: true, 
           disabled: shareBtn.disabled || shareBtn.getAttribute('aria-disabled') === 'true',
           text: shareBtn.textContent,
-          all: debug
+          all: debug,
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2
         };
       });
 
+      logger.info(`🔍 Available buttons: ${buttonInfo.all.join(', ')}`);
+
       if (!buttonInfo.found) {
-        logger.warn(`⚠️ Share button not found (Attempt ${attempt}/3). Available: ${buttonInfo.all.join(', ')}`);
+        logger.warn(`⚠️ Share button not found (Attempt ${attempt}/3)`);
       } else if (buttonInfo.disabled) {
-        logger.warn(`⚠️ Share button is DISABLED (Attempt ${attempt}/3). Available: ${buttonInfo.all.join(', ')}`);
+        logger.warn(`⚠️ Share button is DISABLED (Attempt ${attempt}/3)`);
       } else {
-        await page.evaluate(() => {
-          const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
-          const shareBtn = btns.find(b => b.textContent.trim().toLowerCase() === 'share');
-          if (shareBtn) shareBtn.click();
-        });
-        logger.info(`🚀 Clicked Share button (Attempt ${attempt}/3)`);
+        // Use physical mouse click instead of el.click()
+        await page.mouse.click(buttonInfo.x, buttonInfo.y);
+        logger.info(`🚀 Physical click on Share button at ${Math.round(buttonInfo.x)},${Math.round(buttonInfo.y)} (Attempt ${attempt}/3)`);
       }
       
       logger.info(`⏳ Waiting for share confirmation (Attempt ${attempt}/3)...`);
