@@ -107,6 +107,11 @@ async function loginToInstagram(page) {
 
 /** Build Instagram caption */
 function buildCaption(article) {
+  if (article.socialCaption && article.socialCaption.trim().length > 30) {
+    let c = article.socialCaption.trim();
+    if (c.length > 2100) c = `${c.slice(0, 2097)}…`;
+    return c;
+  }
   const { title, description, articleUrl } = article;
   let caption = `🔮 ${title}\n\n`;
   if (description && description.length > 20) {
@@ -196,17 +201,37 @@ async function postToInstagram(article, articleIndex) {
 
     // ── Select "Post" from menu (not Story/Reel) ────────────────
     await page.evaluate(() => {
-      const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="dialog"] li, [role="option"]'));
-      const postItem = items.find(i => i.textContent.trim() === 'Post');
+      const candidates = Array.from(
+        document.querySelectorAll('[role="menuitem"], [role="dialog"] li, [role="option"], [role="button"], button, span')
+      );
+      const postItem = candidates.find((i) => {
+        const t = (i.textContent || '').replace(/\s+/g, ' ').trim();
+        return t === 'Post';
+      });
       if (postItem) postItem.click();
     });
-    await delay(1500, 2500);
+    await delay(2500, 4000);
 
     // ── Upload image ────────────────────────────────────────────
     logger.info('🖼️ Uploading image to Instagram...');
 
-    // Instagram file input for image upload
-    const fileInput = await waitForSafe(page, 'input[type="file"]', 8000);
+    // File inputs are often hidden; they can appear a few seconds after "Post"
+    let fileInput = null;
+    const deadline = Date.now() + 25000;
+    while (Date.now() < deadline && !fileInput) {
+      const handles = await page.$$('input[type="file"]');
+      for (const h of handles) {
+        const usable = await h.evaluate((el) => {
+          const a = (el.getAttribute('accept') || '').toLowerCase();
+          return !a || a.includes('image') || a.includes('video') || a.includes('*');
+        });
+        if (usable) {
+          fileInput = h;
+          break;
+        }
+      }
+      if (!fileInput) await delay(400, 700);
+    }
     if (!fileInput) throw new Error('Instagram file input not found');
 
     await fileInput.uploadFile(article.localImagePath);
@@ -258,15 +283,24 @@ async function postToInstagram(article, articleIndex) {
     if (!shared) throw new Error('Instagram Share button not found');
 
     logger.info('⏳ Waiting for share confirmation...');
-    // Wait up to 60s for the "Post Shared" confirmation or for the modal to vanish
+    // Wait up to 60s strictly for the "Post Shared" confirmation
+    let confirmed = false;
     try {
       await page.waitForFunction(() => {
-        const bodyText = document.body.innerText;
-        return bodyText.includes('Your post has been shared') || !document.querySelector('[role="dialog"]');
+        const text = document.body.innerText;
+        return text.includes('Your post has been shared') || text.includes('Post shared');
       }, { timeout: 60000 });
-      logger.info('✅ Share confirmed by UI change');
+      confirmed = true;
+      logger.info('✅ Share confirmed! "Your post has been shared" detected.');
     } catch (e) {
-      logger.warn('⚠️ Shared click completed but confirmation UI was not detected — proceeding.');
+      const stillHasDialog = await page.$('[role="dialog"]');
+      if (!stillHasDialog) {
+        logger.info('✅ Share confirmed! Dialog vanished (assuming success)');
+        confirmed = true;
+      } else {
+        await screenshot(page, `${articleIndex}-DEBUG-POST-STUCK`);
+        logger.warn('⚠️ Share button clicked but success message not detected and dialog still open.');
+      }
     }
 
     await delay(3000, 5000); // Final buffer for safety
