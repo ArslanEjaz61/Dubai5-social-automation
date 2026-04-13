@@ -268,18 +268,36 @@ async function postToInstagram(article, articleIndex) {
       logger.warn('⚠️ Caption box not found — posting without caption');
     }
 
-    await delay(1500, 2500);
+    await delay(10000, 15000); // 👈 Increased delay: Instagram needs time to process the image/metadata
     await screenshot(page, `${articleIndex}-5-caption`);
 
     // ── Share ───────────────────────────────────────────────────
     logger.info('🚀 Sharing Instagram post...');
     let shared = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
-      await page.evaluate(() => {
+      const buttonInfo = await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
         const shareBtn = btns.find(b => b.textContent.trim() === 'Share');
-        if (shareBtn) shareBtn.click();
+        if (!shareBtn) return { found: false };
+        return { 
+          found: true, 
+          disabled: shareBtn.disabled || shareBtn.getAttribute('aria-disabled') === 'true',
+          text: shareBtn.textContent 
+        };
       });
+
+      if (!buttonInfo.found) {
+        logger.warn(`⚠️ Share button not found (Attempt ${attempt}/3)`);
+      } else if (buttonInfo.disabled) {
+        logger.warn(`⚠️ Share button is DISABLED (Attempt ${attempt}/3). Still processing?`);
+      } else {
+        await page.evaluate(() => {
+          const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+          const shareBtn = btns.find(b => b.textContent.trim() === 'Share');
+          if (shareBtn) shareBtn.click();
+        });
+        logger.info(`🚀 Clicked Share button (Attempt ${attempt}/3)`);
+      }
       
       logger.info(`⏳ Waiting for share confirmation (Attempt ${attempt}/3)...`);
       try {
