@@ -257,7 +257,19 @@ async function postToInstagram(article, articleIndex) {
 
     if (!shared) throw new Error('Instagram Share button not found');
 
-    await delay(6000, 10000); // Instagram takes longer to process
+    logger.info('⏳ Waiting for share confirmation...');
+    // Wait up to 60s for the "Post Shared" confirmation or for the modal to vanish
+    try {
+      await page.waitForFunction(() => {
+        const bodyText = document.body.innerText;
+        return bodyText.includes('Your post has been shared') || !document.querySelector('[role="dialog"]');
+      }, { timeout: 60000 });
+      logger.info('✅ Share confirmed by UI change');
+    } catch (e) {
+      logger.warn('⚠️ Shared click completed but confirmation UI was not detected — proceeding.');
+    }
+
+    await delay(3000, 5000); // Final buffer for safety
     await screenshot(page, `${articleIndex}-6-shared`);
     logger.info(`🎉 Instagram post shared! Article ${articleIndex + 1}`);
     await markPosted(articleIndex, 'instagram', true);
