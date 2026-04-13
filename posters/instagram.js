@@ -276,7 +276,9 @@ async function postToInstagram(article, articleIndex) {
     let shared = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       const buttonInfo = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+        // Find the creation modal first to avoid background feed buttons!
+        const modal = document.querySelector('[role="dialog"]') || document.body;
+        const btns = Array.from(modal.querySelectorAll('button, [role="button"]'));
         const debug = btns.map(b => b.textContent.trim());
         const shareBtn = btns.find(b => b.textContent.trim().toLowerCase() === 'share');
         if (!shareBtn) return { found: false, all: debug };
