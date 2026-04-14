@@ -9,6 +9,7 @@ const app = express();
 const PORT = process.env.DASHBOARD_PORT || 3456;
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/images', express.static(path.join(__dirname, 'state', 'images')));
 
 // API: Get today's posting stats
 app.get('/api/stats', async (req, res) => {
@@ -41,12 +42,12 @@ app.get('/api/logs', async (req, res) => {
 app.get('/api/schedule', (req, res) => {
   const timezone = process.env.TIMEZONE || 'Asia/Dubai';
   const schedule = [
-    { time: '6:00 AM', action: 'Scrape dubai5.space', platform: 'system' },
-    { time: '7:00 AM', action: 'Post Article #1', platform: 'linkedin' },
-    { time: '8:00 AM', action: 'Post Article #2', platform: 'linkedin' },
-    { time: '9:00 AM', action: 'Post Article #3', platform: 'linkedin' },
-    { time: '10:00 AM', action: 'Post Article #4', platform: 'linkedin' },
-    { time: '11:00 AM', action: 'Post Article #5', platform: 'linkedin' }
+    { time: '6:05 AM', action: 'Scrape Website', platform: 'system' },
+    { time: '9:00 AM', action: 'Post Article #1', platform: 'all' },
+    { time: '10:00 AM', action: 'Post Article #2', platform: 'all' },
+    { time: '11:00 AM', action: 'Post Article #3', platform: 'all' },
+    { time: '12:00 PM', action: 'Post Article #4', platform: 'all' },
+    { time: '1:00 PM', action: 'Post Article #5', platform: 'all' }
   ];
   res.json({ timezone, schedule });
 });

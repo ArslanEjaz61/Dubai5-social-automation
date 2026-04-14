@@ -135,7 +135,13 @@ async function getStats() {
     total: articles.length,
     articles: articles.map((article, i) => ({
       index: i,
+      id: article.id,
       title: article.title,
+      socialCaption: article.socialCaption,
+      category: article.category,
+      impactScore: article.impactScore,
+      signalTag: article.signalTag,
+      localImagePath: article.localImagePath ? path.basename(article.localImagePath) : null,
       postedOn: posted[i] || {}
     }))
   };

@@ -1,739 +1,1010 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dubai5 Social Automation — Dashboard</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg-primary: #0a0e1a;
-      --bg-card: #111827;
-      --bg-card-hover: #1a2235;
-      --accent-blue: #3b82f6;
-      --accent-gold: #f59e0b;
-      --accent-green: #10b981;
-      --accent-red: #ef4444;
-      --accent-purple: #8b5cf6;
-      --text-primary: #f1f5f9;
-      --text-secondary: #94a3b8;
-      --text-muted: #475569;
-      --border: #1e2d45;
-      --linkedin: #0077b5;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dubai5 Social Manager | Command Center</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-main: #F8FAFC;
+            --bg-gradient: linear-gradient(135deg, #F8FAFC 0%, #F5F3FF 100%);
+            --card-glass: rgba(255, 255, 255, 0.9);
+            --border-glass: rgba(109, 40, 217, 0.08);
+            --primary: #6D28D9;
+            --primary-light: #8B5CF6;
+            --primary-soft: #EDE9FE;
+            --secondary: #A855F7;
+            --text-main: #1E293B;
+            --text-secondary: #64748B;
+            --success: #10B981;
+            --error: #EF4444;
+            --warning: #F59E0B;
+            --shadow-soft: 0 10px 25px -5px rgba(109, 40, 217, 0.04), 0 8px 10px -6px rgba(109, 40, 217, 0.04);
+            --shadow-hover: 0 20px 25px -5px rgba(109, 40, 217, 0.08), 0 10px 10px -5px rgba(109, 40, 217, 0.03);
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+            --linkedin: #0077b5;
+            --twitter: #000000;
+            --instagram: #E1306C;
+            --facebook: #1877F2;
+        }
 
-    body {
-      font-family: 'Inter', sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      min-height: 100vh;
-    }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    /* Animated background */
-    body::before {
-      content: '';
-      position: fixed;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: radial-gradient(ellipse at 20% 20%, rgba(59, 130, 246, 0.05) 0%, transparent 50%),
-                  radial-gradient(ellipse at 80% 80%, rgba(245, 158, 11, 0.04) 0%, transparent 50%);
-      animation: bgShift 15s ease infinite alternate;
-      pointer-events: none;
-      z-index: 0;
-    }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-main);
+            background-image: var(--bg-gradient);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
 
-    @keyframes bgShift {
-      0% { transform: translate(0, 0); }
-      100% { transform: translate(-5%, 5%); }
-    }
+        h1,
+        h2,
+        h3,
+        .heading-font {
+            font-family: 'Outfit', sans-serif;
+        }
 
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+        .container {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
 
-    /* Header */
-    header {
-      background: rgba(17, 24, 39, 0.8);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-      padding: 20px 0;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
+        /* Navigation */
+        nav {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-bottom: 1px solid var(--border-glass);
+            padding: 8px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
 
-    .header-inner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+        .nav-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 100px;
+        }
 
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
 
-    .logo-icon {
-      width: 40px;
-      height: 40px;
-      background: linear-gradient(135deg, #f59e0b, #ef4444);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-    }
+        .brand-logo-img {
+            max-width: 250px;
+            height: 80px;
+            object-fit: contain;
+            background: transparent;
+            padding: 0;
+        }
 
-    .logo-text h1 { font-size: 18px; font-weight: 700; }
-    .logo-text p { font-size: 12px; color: var(--text-secondary); }
+        .brand-text h1 {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--primary);
+            letter-spacing: -0.5px;
+        }
 
-    .status-badge {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 13px;
-      color: var(--accent-green);
-      font-weight: 500;
-    }
+        .brand-text p {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: var(--text-secondary);
+            font-weight: 700;
+        }
 
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--accent-green);
-      border-radius: 50%;
-      animation: pulse 2s ease infinite;
-    }
+        .server-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+        }
 
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.5; transform: scale(0.8); }
-    }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--success);
+        }
 
-    /* Main content */
-    main { padding: 40px 0; }
+        /* Main Content */
+        main {
+            padding: 40px 0;
+        }
 
-    /* Stats Grid */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 20px;
-      margin-bottom: 40px;
-    }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 24px;
+        }
 
-    .stat-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      transition: all 0.3s ease;
-      position: relative;
-      overflow: hidden;
-    }
+        /* Top Bar Clock & Stats */
+        .dashboard-header {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
 
-    .stat-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: var(--card-accent, var(--accent-blue));
-      opacity: 0.7;
-    }
+        .header-card {
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: var(--shadow-soft);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
 
-    .stat-card:hover {
-      border-color: rgba(59, 130, 246, 0.3);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-    }
+        .header-card .label {
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            letter-spacing: 0.8px;
+        }
 
-    .stat-icon { font-size: 28px; margin-bottom: 12px; }
-    .stat-value { font-size: 36px; font-weight: 800; margin-bottom: 4px; }
-    .stat-label { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+        .header-card .value {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--primary);
+        }
 
-    /* Schedule */
-    .section-title {
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 20px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+        .header-card .sub {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
 
-    .section-title span { font-size: 20px; }
+        /* Schedule Timeline */
+        .section-title {
+            font-size: 20px;
+            font-weight: 800;
+            margin-bottom: 20px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
 
-    .schedule-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-      gap: 16px;
-      margin-bottom: 40px;
-    }
+        .section-title i {
+            font-size: 18px;
+            opacity: 0.8;
+        }
 
-    .schedule-item {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 18px;
-      text-align: center;
-      transition: all 0.3s ease;
-    }
+        .timeline-wrapper {
+            position: relative;
+            margin-bottom: 40px;
+            padding: 10px 0;
+        }
+        .timeline-track {
+            position: absolute;
+            top: 50px; left: 85px; right: 85px;
+            height: 4px;
+            background: #E2E8F0;
+            z-index: 1;
+            border-radius: 4px;
+        }
+        .timeline-progress {
+            position: absolute;
+            top: 0; left: 0;
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--primary-light) 100%);
+            box-shadow: 0 0 15px rgba(109, 40, 217, 0.3);
+            border-radius: 4px;
+            transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-    .schedule-item.active {
-      border-color: var(--accent-gold);
-      background: rgba(245, 158, 11, 0.05);
-    }
+        .timeline {
+            position: relative;
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            z-index: 2;
+            overflow-x: auto;
+            padding: 5px;
+        }
 
-    .schedule-item.done {
-      border-color: var(--accent-green);
-      background: rgba(16, 185, 129, 0.05);
-    }
+        .timeline-item {
+            min-width: 170px;
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 18px;
+            text-align: center;
+            box-shadow: var(--shadow-soft);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            flex-shrink: 0;
+        }
 
-    .schedule-time {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--accent-gold);
-      margin-bottom: 6px;
-    }
+        .timeline-item.past {
+            opacity: 0.6;
+            filter: grayscale(0.4);
+            background: #F8FAFC;
+        }
 
-    .schedule-action {
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
+        .timeline-item.active {
+            border-color: var(--primary);
+            background: white;
+            box-shadow: 0 20px 40px rgba(109, 40, 217, 0.15);
+            transform: translateY(-8px) scale(1.05);
+            z-index: 10;
+        }
 
-    .schedule-status {
-      margin-top: 8px;
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 10px;
-      display: inline-block;
-    }
+        .timeline-item.active::after {
+            content: '';
+            position: absolute;
+            bottom: -30px; left: 50%;
+            transform: translateX(-50%);
+            width: 8px; height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: pulse-glow 2s infinite;
+        }
 
-    .schedule-status.pending { background: rgba(148, 163, 184, 0.1); color: var(--text-secondary); }
-    .schedule-status.done { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
-    .schedule-status.active { background: rgba(245, 158, 11, 0.15); color: var(--accent-gold); }
+        @keyframes pulse-glow {
+            0% { transform: translateX(-50%) scale(1); box-shadow: 0 0 0 0 rgba(109, 40, 217, 0.4); }
+            70% { transform: translateX(-50%) scale(1.5); box-shadow: 0 0 0 12px rgba(109, 40, 217, 0); }
+            100% { transform: translateX(-50%) scale(1); box-shadow: 0 0 0 0 rgba(109, 40, 217, 0); }
+        }
 
-    /* Articles Table */
-    .articles-section { margin-bottom: 40px; }
+        .timeline-time {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
 
-    .articles-table {
-      background: var(--bg-card);
-      border-radius: 16px;
-      border: 1px solid var(--border);
-      overflow: hidden;
-    }
+        .timeline-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
 
-    .table-header {
-      display: grid;
-      grid-template-columns: 40px 1fr 140px 140px;
-      padding: 16px 24px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      border-bottom: 1px solid var(--border);
-    }
+        /* Work Stream (Articles) */
+        .article-stream {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
 
-    .table-row {
-      display: grid;
-      grid-template-columns: 40px 1fr 140px 140px;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border);
-      align-items: center;
-      transition: background 0.2s;
-    }
+        .article-card {
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 24px;
+            padding: 20px;
+            box-shadow: var(--shadow-soft);
+            display: grid;
+            grid-template-columns: 200px 1fr 240px;
+            gap: 24px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-    .table-row:last-child { border-bottom: none; }
-    .table-row:hover { background: var(--bg-card-hover); }
+        .article-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-hover);
+            border-color: var(--primary-light);
+        }
 
-    .article-num {
-      width: 28px;
-      height: 28px;
-      background: rgba(59, 130, 246, 0.1);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--accent-blue);
-    }
+        .article-img-wrap {
+            position: relative;
+            width: 200px;
+            height: 135px;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+        }
 
-    .article-title {
-      font-size: 14px;
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      padding-right: 16px;
-    }
+        .article-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s;
+        }
 
-    .platform-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-    }
+        .article-card:hover .article-img {
+            transform: scale(1.08);
+        }
 
-    .badge {
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 600;
-    }
+        .article-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 4px 0;
+        }
 
-    .badge.success { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
-    .badge.pending { background: rgba(148, 163, 184, 0.1); color: var(--text-muted); }
-    .badge.failed { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+        .article-meta {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
 
-    /* Logs */
-    .logs-section { margin-bottom: 40px; }
+        .cat-badge {
+            font-size: 10px;
+            font-weight: 800;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: var(--primary-soft);
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-    .log-terminal {
-      background: #0d1117;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 20px;
-      font-family: 'Fira Code', 'Courier New', monospace;
-      font-size: 12px;
-      max-height: 350px;
-      overflow-y: auto;
-      line-height: 1.8;
-    }
+        .impact-badge {
+            font-size: 10px;
+            font-weight: 800;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: #F0FDF4;
+            color: #166534;
+            text-transform: uppercase;
+        }
 
-    .log-line { color: #7dd3fc; }
-    .log-line.error { color: #f87171; }
-    .log-line.warn { color: #fbbf24; }
-    .log-line.success { color: #4ade80; }
+        .article-title {
+            font-size: 19px;
+            font-weight: 800;
+            line-height: 1.4;
+            color: var(--text-main);
+            margin-bottom: 8px;
+        }
 
-    /* Platform Cards */
-    .platforms-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 20px;
-      margin-bottom: 40px;
-    }
+        .article-caption {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
 
-    .platform-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      transition: all 0.3s ease;
-    }
+        .article-status {
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 20px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 12px;
+            border: 1px solid var(--border-glass);
+        }
 
-    .platform-card.active {
-      border-color: var(--platform-color);
-      box-shadow: 0 0 20px rgba(0, 119, 181, 0.1);
-    }
+        .platform-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
 
-    .platform-card.inactive {
-      opacity: 0.5;
-    }
+        .plat-icon {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
-    .platform-header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 16px;
-    }
+        .plat-icon i {
+            font-size: 17px;
+            width: 22px;
+            text-align: center;
+        }
 
-    .platform-logo {
-      width: 44px;
-      height: 44px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-    }
+        .fa-linkedin {
+            color: var(--linkedin);
+        }
 
-    .platform-logo.linkedin { background: rgba(0, 119, 181, 0.15); }
-    .platform-logo.instagram { background: rgba(225, 48, 108, 0.15); }
-    .platform-logo.facebook { background: rgba(24, 119, 242, 0.15); }
-    .platform-logo.twitter { background: rgba(0, 0, 0, 0.3); border: 1px solid #333; }
+        .fa-x-twitter {
+            color: var(--twitter);
+        }
 
-    .platform-name { font-weight: 700; font-size: 16px; }
-    .platform-status { font-size: 12px; color: var(--text-secondary); }
+        .fa-instagram {
+            color: var(--instagram);
+        }
 
-    .platform-stat {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 13px;
-    }
+        .fa-facebook {
+            color: var(--facebook);
+        }
 
-    .platform-stat:last-child { border-bottom: none; }
-    .platform-stat .label { color: var(--text-secondary); }
-    .platform-stat .value { font-weight: 600; }
+        .status-pill {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 800;
+            min-width: 80px;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-    /* Refresh button */
-    .refresh-btn {
-      background: var(--accent-blue);
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: 'Inter', sans-serif;
-      transition: all 0.2s;
-    }
+        .status-pill.posted {
+            background: #DCFCE7;
+            color: #166534;
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.1);
+        }
 
-    .refresh-btn:hover {
-      background: #2563eb;
-      transform: translateY(-1px);
-    }
+        .status-pill.pending {
+            background: #F1F5F9;
+            color: #64748B;
+        }
 
-    /* Dubai time */
-    .dubai-time {
-      font-family: 'Fira Code', monospace;
-      font-size: 14px;
-      color: var(--accent-gold);
-      padding: 6px 14px;
-      background: rgba(245, 158, 11, 0.1);
-      border: 1px solid rgba(245, 158, 11, 0.2);
-      border-radius: 8px;
-    }
+        .status-pill.failed {
+            background: #FEE2E2;
+            color: #991B1B;
+        }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  </style>
+        /* Sidebar Platform Widgets */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .widget {
+            background: var(--card-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .widget-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .platform-small-card {
+            background: white;
+            border: 1px solid var(--border-glass);
+            border-radius: 18px;
+            padding: 18px;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+            transition: all 0.3s;
+        }
+
+        .platform-small-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .p-icon {
+            font-size: 26px;
+            margin-bottom: 10px;
+        }
+
+        .p-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .p-stat {
+            font-size: 10px;
+            color: var(--success);
+            font-weight: 800;
+            margin-top: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        /* Impact Progress Widget */
+        .impact-widget {
+            text-align: center;
+        }
+
+        .impact-circle {
+            position: relative;
+            width: 160px;
+            height: 160px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .impact-value {
+            font-size: 38px;
+            font-weight: 800;
+            color: var(--primary);
+            font-family: 'Outfit';
+        }
+
+        .impact-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Log Terminal (Soft Mode) */
+        .terminal-widget {
+            padding: 0;
+            overflow: hidden;
+            background: #1E1B4B;
+            color: #E0E7FF;
+            border: none;
+            box-shadow: 0 15px 40px rgba(30, 27, 75, 0.15);
+        }
+
+        .terminal-header {
+            background: #2E2A5B;
+            padding: 12px 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .terminal-content {
+            padding: 18px;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 11.5px;
+            height: 350px;
+            overflow-y: auto;
+            line-height: 1.8;
+            scrollbar-width: thin;
+            scrollbar-color: var(--secondary) transparent;
+        }
+
+        .log-ln {
+            margin-bottom: 8px;
+            opacity: 0.85;
+            border-left: 2px solid transparent;
+            padding-left: 10px;
+        }
+
+        .log-ln.sc {
+            color: #86EFAC;
+            font-weight: 600;
+            border-left-color: var(--success);
+        }
+
+        .log-ln.er {
+            color: #FCA5A5;
+            border-left-color: var(--error);
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(15px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate {
+            animation: fadeIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            opacity: 0;
+        }
+
+        .delay-1 {
+            animation-delay: 0.15s;
+        }
+
+        .delay-2 {
+            animation-delay: 0.3s;
+        }
+
+        .delay-3 {
+            animation-delay: 0.45s;
+        }
+
+        /* Responsive */
+        @media (max-width: 1150px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                order: -1;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .terminal-widget {
+                grid-column: span 2;
+            }
+
+            .article-card {
+                grid-template-columns: 160px 1fr;
+            }
+
+            .article-status {
+                grid-column: span 2;
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 15px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .sidebar {
+                grid-template-columns: 1fr;
+            }
+
+            .terminal-widget {
+                grid-column: 1;
+            }
+
+            .header-card .value {
+                font-size: 24px;
+            }
+
+            .article-img-wrap {
+                width: 100%;
+                height: 180px;
+            }
+
+            .article-card {
+                grid-template-columns: 1fr;
+            }
+
+            .article-status {
+                grid-column: 1;
+            }
+        }
+    </style>
 </head>
+
 <body>
 
-<header>
-  <div class="container">
-    <div class="header-inner">
-      <div class="logo">
-        <div class="logo-icon">🔮</div>
-        <div class="logo-text">
-          <h1>Dubai5 Social Automation</h1>
-          <p>Automated social media posting dashboard</p>
+    <nav>
+        <div class="container nav-inner">
+            <div class="brand">
+                <img src="/assets/logo-v3.png" class="brand-logo-img" alt="Dubai5 Logo">
+                <div class="brand-text">
+                    <h1>Dubai5 Social Manager</h1>
+                    <p>Foresight Automation Engine</p>
+                </div>
+            </div>
+            <div style="display:flex; gap: 24px; align-items: center;">
+                <div class="server-status">
+                    <div class="status-dot"></div>
+                    System Online
+                </div>
+                <div id="dubaiClock"
+                    style="font-family: 'Outfit'; font-weight: 800; font-size: 20px; color: var(--primary); letter-spacing: 1px;">
+                    00:00:00</div>
+            </div>
         </div>
-      </div>
-      <div style="display:flex;gap:12px;align-items:center">
-        <div class="dubai-time" id="dubaiTime">Loading...</div>
-        <div class="status-badge">
-          <div class="status-dot"></div>
-          System Active
+    </nav>
+
+    <main>
+        <div class="container">
+
+            <div class="dashboard-header animate">
+                <div class="header-card">
+                    <span class="label">Article Stream</span>
+                    <span class="value" id="stat-total">0</span>
+                    <span class="sub">Insights Tracked Today</span>
+                </div>
+                <div class="header-card">
+                    <span class="label">Live Dispatches</span>
+                    <span class="value" id="stat-posted">0</span>
+                    <span class="sub">Confirmed Live Posts</span>
+                </div>
+                <div class="header-card">
+                    <span class="label">Success Hub</span>
+                    <span class="value" id="stat-rate">0%</span>
+                    <span class="sub">Total Delivery Rate</span>
+                </div>
+                <div class="header-card">
+                    <span class="label">Next Sequence</span>
+                    <span class="value" id="stat-next">--:--</span>
+                    <span class="sub" id="stat-next-sub">Dubai Time (UTC+4)</span>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+
+                <!-- Left: Articles & Timeline -->
+                <div class="main-column">
+                    <h2 class="section-title animate delay-1"><i class="fa-solid fa-clock-rotate-left"></i> Daily
+                        Sequence Log</h2>
+                    <div class="timeline-wrapper animate delay-1">
+                        <div class="timeline-track">
+                            <div class="timeline-progress" id="timelineProgress"></div>
+                        </div>
+                        <div class="timeline" id="timelineList">
+                            <!-- JS Loaded -->
+                        </div>
+                    </div>
+
+                    <h2 class="section-title animate delay-2"><i class="fa-solid fa-bolt"></i> Active Marketing Feed
+                    </h2>
+                    <div class="article-stream animate delay-2" id="articleList">
+                        <div
+                            style="padding: 120px; text-align: center; color: var(--text-secondary); font-weight: 500;">
+                            <i class="fa-solid fa-circle-notch fa-spin"
+                                style="font-size: 30px; margin-bottom: 15px; display: block; color: var(--primary-light);"></i>
+                            Synchronizing Global Neural Feed...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Side Widgets -->
+                <div class="sidebar">
+
+                    <div class="widget animate delay-1">
+                        <h3 class="widget-title">🌐 Platform Health</h3>
+                        <div class="platform-grid">
+                            <div class="platform-small-card">
+                                <div class="p-icon"><i class="fa-brands fa-linkedin"></i></div>
+                                <div class="p-name">LinkedIn</div>
+                                <div class="p-stat" id="health-li">AUTHORIZED</div>
+                            </div>
+                            <div class="platform-small-card">
+                                <div class="p-icon"><i class="fa-brands fa-x-twitter"></i></div>
+                                <div class="p-name">X (Twitter)</div>
+                                <div class="p-stat" id="health-tw">AUTHORIZED</div>
+                            </div>
+                            <div class="platform-small-card">
+                                <div class="p-icon"><i class="fa-brands fa-instagram"></i></div>
+                                <div class="p-name">Instagram</div>
+                                <div class="p-stat" id="health-ig">AUTHORIZED</div>
+                            </div>
+                            <div class="platform-small-card">
+                                <div class="p-icon"><i class="fa-brands fa-facebook"></i></div>
+                                <div class="p-name">Facebook</div>
+                                <div class="p-stat" id="health-fb">AUTHORIZED</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="widget impact-widget animate delay-2">
+                        <h3 class="widget-title">🎯 Vision Impact Meter</h3>
+                        <div class="impact-circle">
+                            <svg width="160" height="160" viewBox="0 0 160 160">
+                                <circle cx="80" cy="80" r="70" fill="none" stroke="#F1F5F9" stroke-width="14" />
+                                <circle id="impact-bar" cx="80" cy="80" r="70" fill="none" stroke="url(#purpleGrad)"
+                                    stroke-width="14" stroke-dasharray="440" stroke-dashoffset="440"
+                                    stroke-linecap="round"
+                                    style="transition: stroke-dashoffset 1.8s cubic-bezier(0.1, 0.9, 0.2, 1)" />
+                                <defs>
+                                    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stop-color="#6D28D9" />
+                                        <stop offset="100%" stop-color="#C084FC" />
+                                    </linearGradient>
+                                </defs>
+                            </svg>
+                            <div
+                                style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <span class="impact-value" id="impact-score">0.0</span>
+                                <span class="impact-label">AVG SCORE</span>
+                            </div>
+                        </div>
+                        <p
+                            style="font-size: 11px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                            Strategic Quality Quotient</p>
+                    </div>
+
+                    <div class="widget terminal-widget animate delay-3">
+                        <div class="terminal-header">
+                            <div class="dot" style="background: #FF5F56;"></div>
+                            <div class="dot" style="background: #FFBD2E;"></div>
+                            <div class="dot" style="background: #27C93F;"></div>
+                            <span
+                                style="font-size: 11px; font-weight: 800; opacity: 0.6; margin-left: 10px; color: white;">LIVE_ENGINE_STREAM</span>
+                        </div>
+                        <div class="terminal-content" id="logContent">
+                            <div class="log-ln">>> Awaiting core telemetry...</div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
         </div>
-      </div>
-    </div>
-  </div>
-</header>
+    </main>
 
-<main>
-  <div class="container">
-
-    <!-- Stats Cards -->
-    <div class="stats-grid" id="statsGrid">
-      <div class="stat-card" style="--card-accent: #f59e0b">
-        <div class="stat-icon">📰</div>
-        <div class="stat-value" id="totalArticles">—</div>
-        <div class="stat-label">Articles in Queue Today</div>
-      </div>
-      <div class="stat-card" style="--card-accent: #0077b5">
-        <div class="stat-icon">🔷</div>
-        <div class="stat-value" id="linkedinPosted">—</div>
-        <div class="stat-label">LinkedIn Posts Today</div>
-      </div>
-      <div class="stat-card" style="--card-accent: #10b981">
-        <div class="stat-icon">✅</div>
-        <div class="stat-value" id="successRate">—</div>
-        <div class="stat-label">Success Rate</div>
-      </div>
-      <div class="stat-card" style="--card-accent: #8b5cf6">
-        <div class="stat-icon">🕒</div>
-        <div class="stat-value" id="nextPost">—</div>
-        <div class="stat-label">Next Post (Dubai Time)</div>
-      </div>
-    </div>
-
-    <!-- Today's Schedule -->
-    <div class="section-title"><span>📅</span> Today's Schedule <button class="refresh-btn" style="margin-left:auto;font-size:12px;padding:6px 14px" onclick="loadData()">🔄 Refresh</button></div>
-    <div class="schedule-grid" id="scheduleGrid">
-      <!-- Populated by JS -->
-    </div>
-
-    <!-- Platform Status -->
-    <div class="section-title"><span>🌐</span> Platform Status</div>
-    <div class="platforms-grid">
-      <div class="platform-card active" style="--platform-color: #0077b5">
-        <div class="platform-header">
-          <div class="platform-logo linkedin">💼</div>
-          <div>
-            <div class="platform-name">LinkedIn</div>
-            <div class="platform-status" id="linkedinStatus">✅ Active</div>
-          </div>
-        </div>
-        <div class="platform-stat">
-          <span class="label">Company Page</span>
-          <span class="value" style="font-size:11px">Dubai5 Foresight</span>
-        </div>
-        <div class="platform-stat">
-          <span class="label">Posts Today</span>
-          <span class="value" id="liPosts">—</span>
-        </div>
-        <div class="platform-stat">
-          <span class="label">Session</span>
-          <span class="value" style="color:#10b981" id="liSession">Loading...</span>
-        </div>
-      </div>
-
-      <div class="platform-card inactive">
-        <div class="platform-header">
-          <div class="platform-logo instagram">📸</div>
-          <div>
-            <div class="platform-name">Instagram</div>
-            <div class="platform-status">⏳ Coming Soon</div>
-          </div>
-        </div>
-        <div class="platform-stat">
-          <span class="label">Status</span>
-          <span class="value" style="color:#f59e0b">Phase 2</span>
-        </div>
-      </div>
-
-      <div class="platform-card inactive">
-        <div class="platform-header">
-          <div class="platform-logo facebook">👥</div>
-          <div>
-            <div class="platform-name">Facebook</div>
-            <div class="platform-status">⏳ Coming Soon</div>
-          </div>
-        </div>
-        <div class="platform-stat">
-          <span class="label">Status</span>
-          <span class="value" style="color:#f59e0b">Phase 2</span>
-        </div>
-      </div>
-
-      <div class="platform-card inactive">
-        <div class="platform-header">
-          <div class="platform-logo twitter">🐦</div>
-          <div>
-            <div class="platform-name">X (Twitter)</div>
-            <div class="platform-status">⏳ Coming Soon</div>
-          </div>
-        </div>
-        <div class="platform-stat">
-          <span class="label">Status</span>
-          <span class="value" style="color:#f59e0b">Phase 2</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Articles Table -->
-    <div class="section-title"><span>📋</span> Today's Articles Queue</div>
-    <div class="articles-section">
-      <div class="articles-table">
-        <div class="table-header">
-          <div>#</div>
-          <div>Article Title</div>
-          <div>LinkedIn</div>
-          <div>Scheduled At</div>
-        </div>
-        <div id="articlesBody">
-          <div style="padding:40px;text-align:center;color:var(--text-muted)">Loading articles...</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Live Logs -->
-    <div class="section-title"><span>📡</span> Live Activity Log</div>
-    <div class="logs-section">
-      <div class="log-terminal" id="logTerminal">
-        <div class="log-line">Waiting for logs...</div>
-      </div>
-    </div>
-
-  </div>
-</main>
-
-<script>
-  // Dubai time clock
-  function updateDubaiTime() {
-    const now = new Date();
-    const dubaiTime = new Intl.DateTimeFormat('en-AE', {
-      timeZone: 'Asia/Dubai',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    }).format(now);
-    document.getElementById('dubaiTime').textContent = '🕌 ' + dubaiTime;
-  }
-
-  setInterval(updateDubaiTime, 1000);
-  updateDubaiTime();
-
-  // Schedule display
-  const SCHEDULE = [
-    { time: '6:00 AM', action: 'Scrape Website', type: 'system', postIndex: -1 },
-    { time: '7:00 AM', action: 'Post Article #1', type: 'post', postIndex: 0 },
-    { time: '8:00 AM', action: 'Post Article #2', type: 'post', postIndex: 1 },
-    { time: '9:00 AM', action: 'Post Article #3', type: 'post', postIndex: 2 },
-    { time: '10:00 AM', action: 'Post Article #4', type: 'post', postIndex: 3 },
-    { time: '11:00 AM', action: 'Post Article #5', type: 'post', postIndex: 4 }
-  ];
-
-  function getCurrentDubaiHour() {
-    const now = new Date();
-    const dubaiHour = new Intl.DateTimeFormat('en-AE', {
-      timeZone: 'Asia/Dubai',
-      hour: 'numeric',
-      hour12: false
-    }).format(now);
-    return parseInt(dubaiHour);
-  }
-
-  function renderSchedule(stats) {
-    const currentHour = getCurrentDubaiHour();
-    const scheduleHours = [6, 7, 8, 9, 10, 11];
-    const grid = document.getElementById('scheduleGrid');
-    
-    grid.innerHTML = SCHEDULE.map((item, i) => {
-      const hour = scheduleHours[i];
-      let status = 'pending';
-      let statusText = 'Pending';
-      
-      if (hour < currentHour) {
-        // Check if posted
-        if (item.postIndex >= 0 && stats && stats.articles[item.postIndex]) {
-          const postData = stats.articles[item.postIndex].postedOn;
-          if (postData.linkedin?.success) {
-            status = 'done';
-            statusText = '✅ Done';
-          } else if (postData.linkedin?.success === false) {
-            status = 'failed';
-            statusText = '❌ Failed';
-          } else {
-            status = 'done';
-            statusText = '✓ Passed';
-          }
-        } else {
-          status = 'done';
-          statusText = '✓ Passed';
+    <script>
+        // Clock
+        function updateClock() {
+            const timeStr = new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Asia/Dubai',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false
+            }).format(new Date());
+            document.getElementById('dubaiClock').innerText = timeStr;
         }
-      } else if (hour === currentHour) {
-        status = 'active';
-        statusText = '🔄 Now';
-      }
-      
-      return `
-        <div class="schedule-item ${status}">
-          <div class="schedule-time">${item.time}</div>
-          <div class="schedule-action">${item.action}</div>
-          <div class="schedule-status ${status}">${statusText}</div>
-        </div>
-      `;
-    }).join('');
-  }
+        setInterval(updateClock, 1000);
+        updateClock();
 
-  function renderArticles(stats) {
-    if (!stats || !stats.articles || stats.articles.length === 0) {
-      document.getElementById('articlesBody').innerHTML = 
-        '<div style="padding:40px;text-align:center;color:var(--text-muted)">No articles in queue. Run the scraper at 6 AM.</div>';
-      return;
-    }
+        async function loadData() {
+            try {
+                const res = await fetch('/api/stats');
+                const stats = await res.json();
+                const sres = await fetch('/api/schedule');
+                const sdata = await sres.json();
+                render(stats, sdata.schedule);
+            } catch (e) { console.error("Data load failed", e); }
+        }
 
-    const scheduleStartHour = 7;
-    
-    document.getElementById('articlesBody').innerHTML = stats.articles.map(article => {
-      const postHour = scheduleStartHour + article.index;
-      const linkedinStatus = article.postedOn.linkedin;
-      let liClass = 'pending';
-      let liText = 'Pending';
-      
-      if (linkedinStatus?.success === true) { liClass = 'success'; liText = 'Posted ✅'; }
-      else if (linkedinStatus?.success === false) { liClass = 'failed'; liText = 'Failed ❌'; }
-      
-      return `
-        <div class="table-row">
-          <div><div class="article-num">${article.index + 1}</div></div>
-          <div class="article-title" title="${article.title}">${article.title || 'Unknown'}</div>
-          <div class="platform-badge"><span class="badge ${liClass}">${liText}</span></div>
-          <div style="font-size:13px;color:var(--text-secondary)">${postHour}:00 AM</div>
-        </div>
-      `;
-    }).join('');
-  }
+        function render(stats, schedule) {
+            document.getElementById('stat-total').innerText = stats.total;
+            const postedCount = stats.articles.reduce((acc, art) => {
+                const platforms = Object.values(art.postedOn);
+                return acc + (platforms.some(p => p.success) ? 1 : 0);
+            }, 0);
+            document.getElementById('stat-posted').innerText = postedCount;
+            document.getElementById('stat-rate').innerText = stats.total > 0 ? Math.round((postedCount / stats.total) * 100) + '%' : '0%';
 
-  function renderStats(stats) {
-    const total = stats?.total || 0;
-    const linkedinPosts = stats?.articles?.filter(a => a.postedOn.linkedin?.success).length || 0;
-    const successRate = total > 0 ? Math.round((linkedinPosts / total) * 100) : '–';
-    
-    document.getElementById('totalArticles').textContent = total;
-    document.getElementById('linkedinPosted').textContent = linkedinPosts;
-    document.getElementById('successRate').textContent = total > 0 ? successRate + '%' : '–';
-    document.getElementById('liPosts').textContent = linkedinPosts + '/' + total;
-    document.getElementById('liSession').textContent = '🟢 Active';
-    
-    // Next post
-    const currentHour = getCurrentDubaiHour();
-    const nextHour = [7, 8, 9, 10, 11].find(h => h > currentHour);
-    document.getElementById('nextPost').textContent = nextHour ? nextHour + ':00 AM' : 'Done';
-  }
+            const nowTime = new Date();
+            const dubaiHours = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dubai', hour: 'numeric', hour12: false }).format(nowTime);
+            const dubaiMins = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dubai', minute: 'numeric' }).format(nowTime);
+            const totalDubaiMins = parseInt(dubaiHours) * 60 + parseInt(dubaiMins);
 
-  async function loadLogs() {
-    try {
-      const res = await fetch('/api/logs');
-      const data = await res.json();
-      const terminal = document.getElementById('logTerminal');
-      terminal.innerHTML = data.lines.map(line => {
-        let cls = 'log-line';
-        if (line.includes('ERROR') || line.includes('❌')) cls += ' error';
-        else if (line.includes('WARN') || line.includes('⚠️')) cls += ' warn';
-        else if (line.includes('✅') || line.includes('🎉')) cls += ' success';
-        return `<div class="${cls}">${escapeHtml(line)}</div>`;
-      }).join('');
-      terminal.scrollTop = terminal.scrollHeight;
-    } catch (e) {}
-  }
+            // Calculate Progression
+            const nodeTimes = schedule.map(item => {
+                const parts = item.time.split(' ');
+                const [h, m] = parts[0].split(':');
+                let hVal = parseInt(h);
+                if (parts[1] === 'PM' && hVal < 12) hVal += 12;
+                if (parts[1] === 'AM' && hVal === 12) hVal = 0;
+                return hVal * 60 + parseInt(m);
+            });
 
-  function escapeHtml(text) {
-    return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  }
+            const timelineList = document.getElementById('timelineList');
+            timelineList.innerHTML = schedule.map((item, id) => {
+                const itemMins = nodeTimes[id];
+                let cls = 'future';
+                if (itemMins < totalDubaiMins) cls = 'past';
+                
+                // If this is the current active node
+                const nextMins = nodeTimes[id + 1] || 9999;
+                if (totalDubaiMins >= itemMins && totalDubaiMins < nextMins) cls = 'active';
 
-  async function loadData() {
-    try {
-      const res = await fetch('/api/stats');
-      const stats = await res.json();
-      renderStats(stats);
-      renderSchedule(stats);
-      renderArticles(stats);
-    } catch (e) {
-      renderSchedule(null);
-    }
-    loadLogs();
-  }
+                return `
+                    <div class="timeline-item ${cls}">
+                        <div class="timeline-time">${item.time}</div>
+                        <div class="timeline-label">${item.action}</div>
+                    </div>
+                `;
+            }).join('');
 
-  // Initial load
-  loadData();
-  
-  // Auto-refresh every 30 seconds
-  setInterval(loadData, 30000);
-  // Refresh logs every 10 seconds
-  setInterval(loadLogs, 10000);
-</script>
+            // Update Progress Bar
+            let progressPercent = 0;
+            const firstNode = nodeTimes[0];
+            const lastNode = nodeTimes[nodeTimes.length - 1];
 
+            if (totalDubaiMins >= lastNode) {
+                progressPercent = 100;
+            } else if (totalDubaiMins > firstNode) {
+                // Find current segment
+                for (let i = 0; i < nodeTimes.length - 1; i++) {
+                    if (totalDubaiMins >= nodeTimes[i] && totalDubaiMins < nodeTimes[i+1]) {
+                        const segmentStart = nodeTimes[i];
+                        const segmentEnd = nodeTimes[i+1];
+                        const segmentProgress = (totalDubaiMins - segmentStart) / (segmentEnd - segmentStart);
+                        const nodeWeight = 100 / (nodeTimes.length - 1);
+                        progressPercent = (i * nodeWeight) + (segmentProgress * nodeWeight);
+                        break;
+                    }
+                }
+            }
+            document.getElementById('timelineProgress').style.width = `${progressPercent}%`;
+
+            const next = schedule.find((item, id) => nodeTimes[id] > totalDubaiMins);
+            document.getElementById('stat-next').innerText = next ? next.time : 'Cycle Complete';
+            document.getElementById('stat-next-sub').innerText = next ? next.action : 'All posts delivered';
+
+            const articleList = document.getElementById('articleList');
+            articleList.innerHTML = stats.articles.map(art => {
+                const imgPath = art.localImagePath ? `/images/${art.localImagePath}` : 'https://via.placeholder.com/200x135?text=Processing...';
+
+                return `
+                    <div class="article-card">
+                        <div class="article-img-wrap">
+                            <img src="${imgPath}" class="article-img" alt="Article Visual">
+                        </div>
+                        <div class="article-info">
+                            <div>
+                                <div class="article-meta">
+                                    <span class="cat-badge">${art.category || 'POLICY'}</span>
+                                    <span class="impact-badge">Score: ${art.impactScore || '8.5'}</span>
+                                </div>
+                                <h3 class="article-title">${art.title}</h3>
+                                <p class="article-caption">${art.socialCaption || 'Analyzing key strategic moves in Dubai...'}</p>
+                            </div>
+                        </div>
+                        <div class="article-status">
+                            ${renderPlat('linkedin', art.postedOn.linkedin)}
+                            ${renderPlat('twitter', art.postedOn.twitter)}
+                            ${renderPlat('facebook', art.postedOn.facebook)}
+                            ${renderPlat('instagram', art.postedOn.instagram)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const avgImpact = stats.articles.length > 0
+                ? (stats.articles.reduce((a, b) => a + (b.impactScore || 8.5), 0) / stats.articles.length).toFixed(1)
+                : '0.0';
+            document.getElementById('impact-score').innerText = avgImpact;
+            const offset = 440 - (440 * (parseFloat(avgImpact) / 10));
+            document.getElementById('impact-bar').style.strokeDashoffset = offset;
+        }
+
+        function renderPlat(key, status) {
+            const icons = { linkedin: 'fa-brands fa-linkedin', twitter: 'fa-brands fa-x-twitter', facebook: 'fa-brands fa-facebook', instagram: 'fa-brands fa-instagram' };
+            const labels = { linkedin: 'LinkedIn', twitter: 'X / Twitter', facebook: 'Facebook', instagram: 'Instagram' };
+
+            let cls = 'pending';
+            let txt = 'Scheduled';
+            if (status?.success === true) { cls = 'posted'; txt = 'Live ✅'; }
+            if (status?.success === false) { cls = 'failed'; txt = 'Reported ❌'; }
+
+            return `
+                <div class="platform-row">
+                    <div class="plat-icon"><i class="${icons[key]}"></i> ${labels[key]}</div>
+                    <div class="status-pill ${cls}">${txt}</div>
+                </div>
+            `;
+        }
+
+        async function loadLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                const data = await res.json();
+                const logCont = document.getElementById('logContent');
+                logCont.innerHTML = data.lines.map(line => {
+                    let cls = 'log-ln';
+                    if (line.includes('✅') || line.includes('POSTED') || line.includes('Success')) cls += ' sc';
+                    if (line.includes('❌') || line.includes('Error') || line.includes('FAILED')) cls += ' er';
+                    return `<div class="${cls}">>> ${escapeHtml(line)}</div>`;
+                }).join('');
+                logCont.scrollTop = logCont.scrollHeight;
+            } catch (e) { }
+        }
+
+        function escapeHtml(text) { return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+        loadData(); loadLogs();
+        setInterval(loadData, 30000); setInterval(loadLogs, 10000);
+    </script>
 </body>
+
 </html>
