@@ -46,6 +46,7 @@
             color: var(--text-main);
             min-height: 100vh;
             overflow-x: hidden;
+            zoom: 0.9;
         }
 
         h1,
@@ -56,9 +57,9 @@
         }
 
         .container {
-            max-width: 1300px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 0 24px;
+            padding: 0 40px;
         }
 
         /* Navigation */
@@ -933,7 +934,9 @@
 
             const articleList = document.getElementById('articleList');
             articleList.innerHTML = stats.articles.map(art => {
-                const imgPath = art.localImagePath ? `/images/${art.localImagePath}` : 'https://via.placeholder.com/200x135?text=Processing...';
+                // Fix: Extract only filename from full local path
+                const filename = art.localImagePath ? art.localImagePath.split(/[\\/]/).pop() : null;
+                const imgPath = filename ? `/images/${filename}` : 'https://via.placeholder.com/200x135?text=Processing...';
 
                 return `
                     <div class="article-card">
