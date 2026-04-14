@@ -52,8 +52,8 @@ app.get('/api/schedule', (req, res) => {
   res.json({ timezone, schedule });
 });
 
-app.listen(PORT, () => {
-  logger.info(`📊 Dashboard running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`📊 Dashboard running on port ${PORT}`);
 });
 
 module.exports = app;
