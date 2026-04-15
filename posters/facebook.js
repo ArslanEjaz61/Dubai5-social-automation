@@ -100,6 +100,40 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/**
+ * Find a visible composer on www.facebook.com and insert text (no fragile waitForSelector).
+ */
+async function fillWwwPostComposer(page, text, maxWaitMs) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const ok = await page.evaluate((t) => {
+      const candidates = Array.from(
+        document.querySelectorAll(
+          '[role="textbox"][contenteditable="true"], div[contenteditable="true"][data-testid], div[contenteditable="true"]'
+        )
+      );
+      for (const el of candidates) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 120 || r.height < 20) continue;
+        const lab = (el.getAttribute('aria-label') || '').toLowerCase();
+        if (lab.includes('search')) continue;
+        el.focus();
+        try {
+          el.click();
+        } catch (e) { /* ignore */ }
+        if (el.isContentEditable || el.getAttribute('role') === 'textbox') {
+          document.execCommand('insertText', false, t);
+          return true;
+        }
+      }
+      return false;
+    }, text);
+    if (ok) return true;
+    await delay(800, 1500);
+  }
+  return false;
+}
+
 /** www timeline URL for posting — NOT business.facebook.com (different product). */
 function getWwwFacebookPageUrl() {
   const wwwExplicit = (process.env.FACEBOOK_WWW_PAGE_URL || '').trim();
@@ -189,42 +223,16 @@ async function postViaWwwFacebook(article, articleIndex) {
     }
     await screenshot(page, `${articleIndex}-3-composer-open`);
 
-    // ── Step 4: Type content ─────────────────────────────────────
+    // ── Step 4: Type content (avoid long waitForSelector hangs on www) ──
     const content = buildPostContent(article);
-    logger.info('⌨️ Looking for post textbox…');
+    logger.info('⌨️ Filling post composer…');
 
-    // Wait for the contenteditable post composer to appear
-    await delay(2000, 3000);
-    const textbox = await waitForSafe(page, '[role="textbox"][contenteditable="true"]', 15000);
-    if (!textbox) {
-      // Try all contenteditable fields, pick the visible one
-      const fallback = await page.evaluateHandle(() => {
-        const editors = Array.from(document.querySelectorAll('[contenteditable="true"]'));
-        return editors.find(el => {
-          const r = el.getBoundingClientRect();
-          return r.width > 200 && r.height > 30 && r.top > 0;
-        });
-      });
-      if (!fallback || !(await fallback.asElement())) {
-        await screenshot(page, `${articleIndex}-ERR-no-textbox`);
-        throw new Error('Could not find Facebook post textbox. Run `node setup.js` and re-login.');
-      }
-      await fallback.asElement().click();
-      await delay(500, 1000);
-    } else {
-      await textbox.click();
-      await delay(500, 1000);
+    const filled = await fillWwwPostComposer(page, content, 45000);
+    if (!filled) {
+      await screenshot(page, `${articleIndex}-ERR-no-textbox`);
+      throw new Error('Could not find Facebook post composer. Run `node setup.js` and re-login.');
     }
-
-    // Paste content (faster + reliable for long text, same as LinkedIn)
-    await page.evaluate((t) => {
-      const el = document.activeElement;
-      if (el && (el.isContentEditable || el.getAttribute('role') === 'textbox')) {
-        el.focus();
-        document.execCommand('insertText', false, t);
-      }
-    }, content);
-    logger.info(`✅ Typed ${content.length} chars`);
+    logger.info(`✅ Entered ${content.length} chars`);
     await delay(2000, 3000);
     await screenshot(page, `${articleIndex}-4-content-ready`);
 
