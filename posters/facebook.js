@@ -97,7 +97,8 @@ async function clickLogInWithFacebookButton(page) {
  * Server screenshot showed we stay on “Log in to Business Tools” — must click through before typing.
  */
 async function ensurePastBusinessGateway(page, composerUrl, articleIndex) {
-  const maxRounds = 8;
+  const maxRounds = 3;
+  let gatewayLoops = 0;
   for (let round = 1; round <= maxRounds; round++) {
     if (await hasComposerUi(page)) {
       logger.info('✅ Meta Suite composer UI ready');
@@ -105,6 +106,7 @@ async function ensurePastBusinessGateway(page, composerUrl, articleIndex) {
     }
 
     if (await isBusinessToolsGateway(page)) {
+      gatewayLoops += 1;
       logger.info(
         `🚪 Meta Business Tools gateway — round ${round}/${maxRounds} (need “Log in with Facebook”)`
       );
@@ -117,9 +119,9 @@ async function ensurePastBusinessGateway(page, composerUrl, articleIndex) {
       }
       await delay(3000, 5000);
       try {
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 120000 });
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 });
       } catch (e) {
-        await delay(10000, 15000);
+        await delay(8000, 12000);
       }
       await delay(4000, 7000);
 
@@ -132,6 +134,15 @@ async function ensurePastBusinessGateway(page, composerUrl, articleIndex) {
       await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 });
       await delay(8000, 14000);
       await screenshot(page, `${articleIndex}-after-gateway-${round}`);
+
+      // Datacenter IPs often get this page again after OAuth — don’t spin forever.
+      if (gatewayLoops >= 2 && (await isBusinessToolsGateway(page)) && !(await hasComposerUi(page))) {
+        logger.error(
+          '❌ Meta keeps returning the Business Tools gateway on this host. Use Facebook Graph API: ' +
+            'set FACEBOOK_PAGE_ID + FACEBOOK_PAGE_ACCESS_TOKEN in .env (stable server post).'
+        );
+        return false;
+      }
       continue;
     }
 
