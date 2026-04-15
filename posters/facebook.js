@@ -7,19 +7,6 @@ const { launchBrowser } = require('../browser');
 const { loadCookies, saveCookies } = require('../setup');
 const { markPosted } = require('../queue');
 
-const FB_PAGE_URL = process.env.FACEBOOK_PAGE_URL || '';
-
-/** Meta Business Suite “Create post” URL — set in .env to match your Page composer. */
-function getComposerUrl() {
-  const fromEnv =
-    process.env.FACEBOOK_COMPOSER_URL ||
-    process.env.FACEBOOK_SUITE_URL ||
-    (FB_PAGE_URL.includes('business.facebook.com') ? FB_PAGE_URL : '');
-  if (fromEnv && /^https?:\/\//i.test(fromEnv.trim())) return fromEnv.trim();
-  const assetId = process.env.FACEBOOK_ASSET_ID || '970837422790775';
-  return `https://business.facebook.com/latest/composer/?asset_id=${assetId}&nav_ref=internal_nav&ref=biz_web_home_create_post&context_ref=HOME`;
-}
-
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'logs', 'screenshots', 'facebook');
 fs.ensureDirSync(SCREENSHOTS_DIR);
 
@@ -45,321 +32,6 @@ async function waitForSafe(page, selector, timeout = 8000) {
   } catch (e) { return null; }
 }
 
-/** Meta “Get started with business tools” landing — composer is NOT loaded here. */
-async function isBusinessToolsGateway(page) {
-  try {
-    return await page.evaluate(() => {
-      const t = (document.body && document.body.innerText) || '';
-      return (
-        t.includes('Log in to Business Tools from Meta') ||
-        t.includes('Get started with business tools from Meta')
-      );
-    });
-  } catch (e) {
-    return false;
-  }
-}
-
-/** True when the real Create post UI (same as your desktop screenshot) seems present. */
-async function hasComposerUi(page) {
-  try {
-    return await page.evaluate(() => {
-      const t = (document.body && document.body.innerText) || '';
-      return (
-        t.includes('Add photo') ||
-        t.includes('Add photo/video') ||
-        t.includes('Facebook Feed preview') ||
-        (t.includes('Post to') && t.includes('Publish'))
-      );
-    });
-  } catch (e) {
-    return false;
-  }
-}
-
-async function clickLogInWithFacebookButton(page) {
-  return page.evaluate(() => {
-    const nodes = Array.from(
-      document.querySelectorAll('button, [role="button"], a, div[role="button"]')
-    );
-    for (const el of nodes) {
-      const raw = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-      if (/log in with facebook/i.test(raw)) {
-        el.click();
-        return true;
-      }
-    }
-    return false;
-  });
-}
-
-/**
- * Server screenshot showed we stay on “Log in to Business Tools” — must click through before typing.
- */
-async function ensurePastBusinessGateway(page, composerUrl, articleIndex) {
-  const maxRounds = 3;
-  let gatewayLoops = 0;
-  for (let round = 1; round <= maxRounds; round++) {
-    if (await hasComposerUi(page)) {
-      logger.info('✅ Meta Suite composer UI ready');
-      return true;
-    }
-
-    if (await isBusinessToolsGateway(page)) {
-      gatewayLoops += 1;
-      logger.info(
-        `🚪 Meta Business Tools gateway — round ${round}/${maxRounds} (need “Log in with Facebook”)`
-      );
-      const clicked = await clickLogInWithFacebookButton(page);
-      if (!clicked) {
-        logger.warn('⚠️ “Log in with Facebook” not found — reloading composer…');
-        await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 }).catch(() => {});
-        await delay(6000, 10000);
-        continue;
-      }
-      await delay(3000, 5000);
-      try {
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 });
-      } catch (e) {
-        await delay(8000, 12000);
-      }
-      await delay(4000, 7000);
-
-      if (await page.$('#email')) {
-        logger.info('🔐 Facebook login form opened — using FACEBOOK_EMAIL / FACEBOOK_PASSWORD…');
-        await loginToFacebook(page);
-      }
-
-      logger.info('🔗 Opening composer again…');
-      await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 });
-      await delay(8000, 14000);
-      await screenshot(page, `${articleIndex}-after-gateway-${round}`);
-
-      // Datacenter IPs often get this page again after OAuth — don’t spin forever.
-      if (gatewayLoops >= 2 && (await isBusinessToolsGateway(page)) && !(await hasComposerUi(page))) {
-        logger.error(
-          '❌ Meta keeps returning the Business Tools gateway on this host. Use Facebook Graph API: ' +
-            'set FACEBOOK_PAGE_ID + FACEBOOK_PAGE_ACCESS_TOKEN in .env (stable server post).'
-        );
-        return false;
-      }
-      continue;
-    }
-
-    logger.info(`🔁 Composer not ready (round ${round}) — reloading…`);
-    await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 }).catch(() => {});
-    await delay(7000, 12000);
-  }
-
-  return await hasComposerUi(page);
-}
-
-/** Check if logged in to Facebook (URL); Business Tools marketing page = not “in” composer. */
-async function isLoggedIn(page) {
-  const url = page.url();
-  if (url.includes('/login') || url.includes('login.php') || url.includes('/checkpoint')) return false;
-  if (await isBusinessToolsGateway(page)) return false;
-  return true;
-}
-
-/** Login to Facebook with credentials */
-async function loginToFacebook(page) {
-  const email = process.env.FACEBOOK_EMAIL;
-  const password = process.env.FACEBOOK_PASSWORD;
-  if (!email || !password) throw new Error('FACEBOOK_EMAIL/PASSWORD not set in .env');
-
-  logger.info('🔐 Logging in to Facebook...');
-  await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2' });
-  await delay(2000, 3000);
-
-  // Accept cookies if dialog appears
-  try {
-    const acceptBtn = await page.$('[data-testid="cookie-policy-manage-dialog-accept-button"]')
-      || await page.$('[aria-label*="Accept" i][role="button"]');
-    if (acceptBtn) { await acceptBtn.click(); await delay(1000, 1500); }
-  } catch (e) {}
-
-  const emailInput = await waitForSafe(page, '#email', 10000);
-  
-  if (!emailInput) {
-    // Check for "Profile Wall" during login (fb-login-fail.png)
-    const profileWallClicked = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
-      const continueBtn = btns.find(b => {
-        const t = b.textContent.trim().toLowerCase();
-        return t === 'continue' || t.includes('continue as');
-      });
-      if (continueBtn) {
-        continueBtn.click();
-        return true;
-      }
-      return false;
-    });
-
-    if (profileWallClicked) {
-      logger.info('🖱️ Handled Profile selection wall during login flow');
-      await delay(3000, 5000);
-      // After clicking continue, it might load the password field or the home page
-      if (await isLoggedIn(page)) return;
-      return loginToFacebook(page); // Recursive retry once profile is selected
-    }
-    
-    throw new Error('Facebook login page did not load');
-  }
-
-  await emailInput.click();
-  await page.keyboard.type(email, { delay: 40 });
-  await delay(400, 700);
-
-  const passInput = await waitForSafe(page, '#pass', 5000);
-  if (!passInput) throw new Error('Facebook password field (#pass) not found');
-  await passInput.click();
-  await page.keyboard.type(password, { delay: 40 });
-  await delay(400, 700);
-
-  await page.click('[name="login"]');
-  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
-
-  const url = page.url();
-  if (url.includes('/login') || url.includes('login.php')) {
-    await screenshot(page, 'login-failed');
-    throw new Error('Facebook login failed — check credentials');
-  }
-
-  await saveCookies(page, 'facebook');
-  logger.info('✅ Facebook login successful!');
-}
-
-/**
- * Collect editors inside open shadow roots (Meta Suite often hides the “Text” field there).
- */
-function fillComposerDomSnippet(text) {
-  function collectEditable(root, arr) {
-    if (!root || !root.querySelectorAll) return;
-    root.querySelectorAll('[contenteditable="true"]').forEach((n) => arr.push(n));
-    root.querySelectorAll('textarea:not([readonly]):not([disabled])').forEach((n) => arr.push(n));
-    root.querySelectorAll('[role="textbox"]').forEach((n) => arr.push(n));
-    root.querySelectorAll('*').forEach((el) => {
-      try {
-        if (el.shadowRoot) collectEditable(el.shadowRoot, arr);
-      } catch (e) { /* cross-origin shadow */ }
-    });
-  }
-
-  const nodes = [];
-  collectEditable(document, nodes);
-  const uniq = [...new Set(nodes)];
-
-  function score(node) {
-    const r = node.getBoundingClientRect();
-    if (r.width < 72 || r.height < 24) return -999;
-    if (r.bottom < 0 || r.top > (typeof innerHeight !== 'undefined' ? innerHeight : 9999)) return -999;
-    const lab = (node.getAttribute('aria-label') || '').toLowerCase();
-    const ph = (node.getAttribute('placeholder') || '').toLowerCase();
-    if (lab.includes('search')) return -999;
-    let s = 0;
-    if (lab.includes('text') && !lab.includes('search')) s += 48;
-    if (lab.includes('post') || lab.includes('write')) s += 22;
-    if (ph.includes('write') || ph.includes('text') || ph.includes('tell')) s += 18;
-    if (node.isContentEditable) s += 14;
-    if (node.getAttribute('role') === 'textbox') s += 10;
-    if (node.tagName === 'TEXTAREA') s += 8;
-    s += Math.min((r.width * r.height) / 10000, 24);
-    return s;
-  }
-
-  let best = null;
-  let bestScore = -Infinity;
-  for (const n of uniq) {
-    const sc = score(n);
-    if (sc > bestScore) {
-      bestScore = sc;
-      best = n;
-    }
-  }
-  if (!best || bestScore < 3) return false;
-
-  best.scrollIntoView({ block: 'center', inline: 'nearest' });
-  best.focus();
-  try {
-    best.click();
-  } catch (e) { /* ignore */ }
-
-  const t = text;
-  if (best.tagName === 'TEXTAREA' || best.tagName === 'INPUT') {
-    best.value = t;
-    best.dispatchEvent(new InputEvent('input', { bubbles: true, data: t, inputType: 'insertText' }));
-  } else if (best.isContentEditable || best.getAttribute('role') === 'textbox') {
-    document.execCommand('insertText', false, t);
-  } else {
-    return false;
-  }
-  return true;
-}
-
-/** Try filling composer in every frame until one succeeds (handles iframes + shadow DOM). */
-async function fillComposerViaDom(page, text, maxWaitMs = 90000) {
-  const start = Date.now();
-  await page.waitForSelector('body', { timeout: 8000 }).catch(() => {});
-  await page.waitForSelector('iframe', { timeout: 25000 }).catch(() => {});
-
-  while (Date.now() - start < maxWaitMs) {
-    const frames = [
-      page.mainFrame(),
-      ...page.frames().filter((f) => f !== page.mainFrame() && f.url() && f.url() !== 'about:blank')
-    ];
-    for (const frame of frames) {
-      const ok = await frame.evaluate(fillComposerDomSnippet, text).catch(() => false);
-      if (ok) return true;
-    }
-    await delay(1500, 2200);
-  }
-  return false;
-}
-
-function clickPublishDomSnippet() {
-  function collectButtons(root, arr) {
-    if (!root || !root.querySelectorAll) return;
-    root.querySelectorAll('div[role="button"], button').forEach((b) => arr.push(b));
-    root.querySelectorAll('*').forEach((el) => {
-      try {
-        if (el.shadowRoot) collectButtons(el.shadowRoot, arr);
-      } catch (e) { /* ignore */ }
-    });
-  }
-  const btns = [];
-  collectButtons(document, btns);
-  const pub = btns.find((b) => {
-    const t = (b.textContent || '').trim().toLowerCase();
-    if (t !== 'publish') return false;
-    if (b.getAttribute('aria-disabled') === 'true') return false;
-    if (b.disabled) return false;
-    return true;
-  });
-  if (pub) {
-    pub.click();
-    return true;
-  }
-  return false;
-}
-
-async function clickPublishWhenReady(page, maxWaitMs = 90000) {
-  const tryClick = async (frame) => {
-    return frame.evaluate(clickPublishDomSnippet).catch(() => false);
-  };
-
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    if (await tryClick(page.mainFrame())) return true;
-    for (const frame of page.frames()) {
-      if (frame === page.mainFrame()) continue;
-      if (await tryClick(frame)) return true;
-    }
-    await delay(600, 1000);
-  }
-  return false;
-}
-
 /** Build Facebook post content */
 function buildPostContent(article) {
   const { title, description, articleUrl } = article;
@@ -373,16 +45,16 @@ function buildPostContent(article) {
   return content;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  APPROACH 1 — Graph API (most reliable on any server)
+// ════════════════════════════════════════════════════════════════════════════
+
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v21.0';
 
 function graphErrorMessage(err) {
   return err.response?.data?.error?.message || err.message;
 }
 
-/**
- * Post to Facebook Page via Graph API (server-safe: no Business Suite / headless).
- * Requires FACEBOOK_PAGE_ID + FACEBOOK_PAGE_ACCESS_TOKEN (Page token with pages_manage_posts).
- */
 async function postToFacebookGraph(article, articleIndex) {
   const pageId = process.env.FACEBOOK_PAGE_ID;
   const token = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
@@ -399,12 +71,7 @@ async function postToFacebookGraph(article, articleIndex) {
     if (canPhoto) {
       try {
         const { data } = await axios.post(`${base}/photos`, null, {
-          params: {
-            url: imageUrl,
-            caption: message,
-            access_token: token,
-            published: true
-          },
+          params: { url: imageUrl, caption: message, access_token: token, published: true },
           timeout: 60000
         });
         logger.info(`✅ Facebook photo post created id=${data.id}`);
@@ -415,16 +82,9 @@ async function postToFacebookGraph(article, articleIndex) {
       }
     }
 
-    const link =
-      article.articleUrl ||
-      process.env.WEBSITE_URL ||
-      'https://dubai5.space';
+    const link = article.articleUrl || process.env.WEBSITE_URL || 'https://dubai5.space';
     const { data } = await axios.post(`${base}/feed`, null, {
-      params: {
-        message,
-        link,
-        access_token: token
-      },
+      params: { message, link, access_token: token },
       timeout: 60000
     });
     logger.info(`✅ Facebook feed post created id=${data.id}`);
@@ -438,137 +98,211 @@ async function postToFacebookGraph(article, articleIndex) {
   }
 }
 
-/**
- * Post article to Facebook Page via Meta Business Suite (browser) unless Graph API env is set.
- */
-async function postToFacebook(article, articleIndex) {
-  if (process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
-    return postToFacebookGraph(article, articleIndex);
+// ════════════════════════════════════════════════════════════════════════════
+//  APPROACH 2 — mbasic.facebook.com (plain HTML, no React / Business Suite)
+//  Works on AWS / datacenter IPs where business.facebook.com blocks the UI.
+// ════════════════════════════════════════════════════════════════════════════
+
+async function loginViaMbasic(page) {
+  const email = process.env.FACEBOOK_EMAIL;
+  const password = process.env.FACEBOOK_PASSWORD;
+  if (!email || !password) throw new Error('FACEBOOK_EMAIL/PASSWORD not set in .env');
+
+  logger.info('🔐 Logging in via mbasic.facebook.com…');
+  await page.goto('https://mbasic.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
+  await delay(1500, 2500);
+
+  const emailField = await waitForSafe(page, '#m_login_email', 8000)
+    || await waitForSafe(page, 'input[name="email"]', 5000);
+
+  if (!emailField) {
+    const bodyText = await page.evaluate(() => document.body?.innerText || '');
+    if (bodyText.includes('News Feed') || bodyText.includes('Write Post') || bodyText.includes('Timeline')) {
+      logger.info('✅ Already logged in (mbasic)');
+      return;
+    }
+    await screenshot(page, 'mbasic-no-login-field');
+    throw new Error('mbasic login form not found and not logged in');
   }
 
-  logger.info(`\n📘 Facebook (Meta Suite) → Article ${articleIndex + 1}: "${article.title.substring(0, 50)}..."`);
+  await emailField.click();
+  await emailField.type(email, { delay: 25 });
+  await delay(300, 600);
 
-  const FB_SUITE_URL = getComposerUrl();
-  logger.info(`🔗 Composer URL: ${FB_SUITE_URL.substring(0, 80)}…`);
+  const passField = await waitForSafe(page, 'input[name="pass"]', 5000);
+  if (!passField) throw new Error('mbasic password field not found');
+  await passField.click();
+  await passField.type(password, { delay: 25 });
+  await delay(300, 600);
+
+  const loginBtn = await page.$('input[name="login"]')
+    || await page.$('button[name="login"]')
+    || await page.$('input[type="submit"]');
+  if (!loginBtn) throw new Error('mbasic login button not found');
+  await loginBtn.click();
+  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+  await delay(2000, 3000);
+
+  const afterUrl = page.url();
+  if (afterUrl.includes('login') && !afterUrl.includes('save-device') && !afterUrl.includes('checkpoint')) {
+    await screenshot(page, 'mbasic-login-failed');
+    throw new Error('mbasic Facebook login failed — check credentials');
+  }
+
+  if (afterUrl.includes('checkpoint')) {
+    await screenshot(page, 'mbasic-checkpoint');
+    throw new Error('Facebook checkpoint — verify identity at facebook.com first');
+  }
+
+  if (afterUrl.includes('save-device') || afterUrl.includes('login_save')) {
+    logger.info('📱 "Save device" prompt — skipping…');
+    const skipLink = await page.evaluateHandle(() => {
+      const links = Array.from(document.querySelectorAll('a'));
+      return links.find(a => /not now|skip|ok/i.test(a.textContent));
+    });
+    if (skipLink && await skipLink.asElement()) {
+      await skipLink.asElement().click();
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
+      await delay(1500, 2500);
+    }
+  }
+
+  await saveCookies(page, 'facebook');
+  logger.info('✅ mbasic login successful!');
+}
+
+async function postViaMbasic(article, articleIndex) {
+  const pageId = process.env.FACEBOOK_ASSET_ID || '970837422790775';
+  const titlePreview = (article.title || '').substring(0, 50);
+  logger.info(`\n📘 Facebook (mbasic) → Article ${articleIndex + 1}: "${titlePreview}..."`);
 
   let browser, page;
   try {
-    // On Linux servers, Meta Suite often omits the real composer in headless; use
-    // FACEBOOK_VISIBLE=true with Xvfb, e.g. `xvfb-run -a env FACEBOOK_VISIBLE=true node posters/facebook.js`
-    const headless = process.env.FACEBOOK_VISIBLE !== 'true';
-    ({ browser, page } = await launchBrowser(headless));
-
-    // Load session
+    ({ browser, page } = await launchBrowser(true));
     await loadCookies(page, 'facebook');
-    
-    logger.info('🔗 Navigating to Meta Business Suite Composer...');
-    await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 90000 });
-    await delay(6000, 10000); // Suite is heavy, wait for it to settle
 
-    const startUrl = page.url();
-    if (startUrl.includes('login.php') || startUrl.includes('/checkpoint')) {
-      logger.warn('⚠️ Facebook login/challenge URL — logging in via www…');
-      await loginToFacebook(page);
-      await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 120000 });
-      await delay(6000, 10000);
+    // ── Step 1: Login ────────────────────────────────────────────
+    await page.goto('https://mbasic.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
+    await delay(1500, 2500);
+    const needsLogin = page.url().includes('login') || (await page.$('#m_login_email'));
+    if (needsLogin) {
+      await loginViaMbasic(page);
+    } else {
+      logger.info('✅ mbasic session still valid');
+    }
+    await screenshot(page, `${articleIndex}-1-mbasic-loggedin`);
+
+    // ── Step 2: Navigate to Page ─────────────────────────────────
+    logger.info(`🔗 Opening Page ${pageId} on mbasic…`);
+    await page.goto(`https://mbasic.facebook.com/${pageId}`, { waitUntil: 'networkidle2', timeout: 60000 });
+    await delay(2000, 3000);
+    await screenshot(page, `${articleIndex}-2-mbasic-page`);
+
+    // mbasic page may show "Write Post" link or have a composer form
+    const writePostLink = await page.evaluateHandle(() => {
+      const links = Array.from(document.querySelectorAll('a'));
+      return links.find(a => /write post|create post|write something/i.test(a.textContent || ''));
+    });
+    if (writePostLink && await writePostLink.asElement()) {
+      logger.info('🖱️ Clicking "Write Post"…');
+      await writePostLink.asElement().click();
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
+      await delay(2000, 3000);
     }
 
-    // Marketing “Business Tools” page is NOT composer — click through first (server screenshots).
-    const composerReady = await ensurePastBusinessGateway(page, FB_SUITE_URL, articleIndex);
-    if (!composerReady) {
-      throw new Error('Could not reach Meta Suite composer (Business Tools gateway or Meta block)');
+    // ── Step 3: Fill post content ────────────────────────────────
+    const content = buildPostContent(article);
+    logger.info('⌨️ Looking for post textarea…');
+
+    const textarea = await waitForSafe(page, 'textarea[name="xc_message"]', 10000)
+      || await waitForSafe(page, 'textarea', 5000);
+
+    if (!textarea) {
+      await screenshot(page, `${articleIndex}-ERR-no-textarea`);
+
+      const bodyText = await page.evaluate(() => (document.body?.innerText || '').substring(0, 2000));
+      logger.error(`❌ No textarea found on mbasic page. Body preview: ${bodyText.substring(0, 300)}`);
+      throw new Error('Could not find mbasic post textarea');
     }
 
-    logger.info('✅ Meta Suite composer open');
-    await screenshot(page, `${articleIndex}-1-suite-loaded`);
+    await textarea.click();
+    await delay(300, 500);
+    await textarea.type(content, { delay: 12 });
+    logger.info(`✅ Typed ${content.length} chars`);
+    await delay(1000, 2000);
+    await screenshot(page, `${articleIndex}-3-mbasic-content`);
 
-    // ── Overlays: Profile selection wall, etc. ──
-    try {
-      // “Continue” profile wall (fb-login-fail.png)
-      const profileWallInfo = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('div[role="button"], button, a'));
-        const btn = btns.find(b => {
-          const t = b.textContent.trim().toLowerCase();
-          return t === 'continue' || t.includes('continue as');
-        });
-        if (!btn) return null;
-        const r = btn.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-      });
-      
-      if (profileWallInfo) {
-        logger.info(`🖱️ Handled Facebook Profile Selection Wall (Force Click at ${Math.round(profileWallInfo.x)},${Math.round(profileWallInfo.y)})`);
-        await page.mouse.click(profileWallInfo.x, profileWallInfo.y);
-        await delay(6000, 10000);
-      }
-
-      const closePopup = await page.$('[aria-label="Close"]');
-      if (closePopup) { await closePopup.click(); await delay(1000, 1500); }
-    } catch (e) {}
-
-    // ── Step 1: Upload image ────────────────────────────────────
+    // ── Step 4: Image upload (if available) ──────────────────────
     if (article.localImagePath && await fs.pathExists(article.localImagePath)) {
-      logger.info(`🖼️ Uploading image (${article.localImagePath})...`);
       try {
-        // Find "Add photo/video" button
-        const addBtnHandle = await page.evaluateHandle(() => {
-          return Array.from(document.querySelectorAll('div[role="button"], button')).find(el => {
-            const t = (el.textContent || '').toLowerCase();
-            return t.includes('add photo') || t.includes('add photo/video');
-          });
-        });
-
-        const addBtn = await addBtnHandle.asElement();
-        if (addBtn) {
-          const [fileChooser] = await Promise.all([
-            page.waitForFileChooser({ timeout: 15000 }),
-            addBtn.click(),
-          ]);
-          await fileChooser.accept([article.localImagePath]);
-          logger.info('✅ Image selected via file chooser');
-          await delay(8000, 12000); // Business Suite needs time to process media
-          await screenshot(page, `${articleIndex}-2-image-attached`);
-        } else {
-          logger.warn('⚠️ Could not find "Add photo" button in Business Suite');
+        const fileInput = await page.$('input[type="file"][name="file1"]')
+          || await page.$('input[type="file"]');
+        if (fileInput) {
+          await fileInput.uploadFile(article.localImagePath);
+          logger.info('🖼️ Image attached via mbasic file input');
+          await delay(2000, 4000);
         }
       } catch (imgErr) {
-        logger.warn(`⚠️ FB media upload error: ${imgErr.message}`);
+        logger.warn(`⚠️ mbasic image upload skipped: ${imgErr.message}`);
       }
     }
 
-    // ── Step 2: Type content (iframes + open shadow roots) ──────
-    logger.info('⌨️ Filling Meta Suite composer (iframe / shadow DOM)…');
-    const content = buildPostContent(article);
+    // ── Step 5: Submit the post ──────────────────────────────────
+    logger.info('🚀 Submitting post…');
+    const postBtn = await page.$('input[name="view_post"]')
+      || await page.$('input[type="submit"][value*="Post"]')
+      || await page.$('button[type="submit"]');
 
-    const filled = await fillComposerViaDom(page, content, 95000);
-    if (!filled) throw new Error('Could not find Facebook Suite text editor');
-
-    logger.info(`✅ Entered ${content.length} chars in composer`);
-    await delay(2500, 4000);
-    await screenshot(page, `${articleIndex}-3-content-ready`);
-
-    // ── Step 3: Publish (enabled after text; scan main + iframes) ─
-    logger.info('🚀 Waiting for Publish to become enabled…');
-    const published = await clickPublishWhenReady(page, 90000);
-    if (!published) {
-      await screenshot(page, `${articleIndex}-ERR-no-publish-btn`);
-      throw new Error('Could not find enabled Facebook Publish button');
+    if (!postBtn) {
+      const submitFallback = await page.evaluateHandle(() => {
+        const inputs = Array.from(document.querySelectorAll('input[type="submit"]'));
+        return inputs.find(i => /post/i.test(i.value || ''));
+      });
+      if (submitFallback && await submitFallback.asElement()) {
+        await submitFallback.asElement().click();
+      } else {
+        await screenshot(page, `${articleIndex}-ERR-no-submit`);
+        throw new Error('Could not find mbasic submit/post button');
+      }
+    } else {
+      await postBtn.click();
     }
-    logger.info('✅ Clicked Publish');
-    await delay(10000, 15000);
-    await screenshot(page, `${articleIndex}-4-published`);
-    logger.info(`🎉 Facebook (Meta Suite) post published! Article ${articleIndex + 1}`);
+
+    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
+    await delay(3000, 5000);
+    await screenshot(page, `${articleIndex}-4-mbasic-posted`);
+
+    const afterUrl = page.url();
+    const afterBody = await page.evaluate(() => (document.body?.innerText || '').substring(0, 500));
+    if (afterUrl.includes('/composer') || afterBody.includes('error') || afterBody.includes('try again')) {
+      logger.warn(`⚠️ Post may have failed — URL: ${afterUrl}`);
+      throw new Error('mbasic post submission may have failed');
+    }
+
+    logger.info(`🎉 Facebook post published via mbasic! Article ${articleIndex + 1}`);
+    await saveCookies(page, 'facebook');
     await markPosted(articleIndex, 'facebook', true);
     return true;
 
   } catch (err) {
-    logger.error(`❌ Facebook posting failed (article ${articleIndex}): ${err.message}`);
+    logger.error(`❌ Facebook (mbasic) posting failed (article ${articleIndex}): ${err.message}`);
     if (page) await screenshot(page, `${articleIndex}-FATAL-ERROR`);
     await markPosted(articleIndex, 'facebook', false, err.message);
     return false;
   } finally {
     if (browser) await browser.close();
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Main entry: Graph API → mbasic browser
+// ════════════════════════════════════════════════════════════════════════════
+
+async function postToFacebook(article, articleIndex) {
+  if (process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
+    return postToFacebookGraph(article, articleIndex);
+  }
+  return postViaMbasic(article, articleIndex);
 }
 
 // ── Direct test ──────────────────────────────────────────────
