@@ -1,9 +1,8 @@
-/**
- * Browser launcher utility — uses puppeteer-core with your installed Chrome
- * No need to download Chromium (~300MB saved!)
- */
-const puppeteerCore = require('puppeteer-core');
+const puppeteerExtra = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
+
+puppeteerExtra.use(StealthPlugin());
 
 // Common Chrome/Edge installation paths on Windows
 const CHROME_PATHS = [
@@ -44,14 +43,13 @@ function findBrowserPath() {
 async function launchBrowser(headless = true) {
   const executablePath = findBrowserPath();
 
-  const browser = await puppeteerCore.launch({
+  const browser = await puppeteerExtra.launch({
     executablePath,
     headless,
     protocolTimeout: 300000,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
       '--disable-notifications',
       '--disable-infobars',
       '--window-size=1280,900'
@@ -63,13 +61,8 @@ async function launchBrowser(headless = true) {
   const page = await browser.newPage();
 
   await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
   );
-
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    window.chrome = { runtime: {} };
-  });
 
   return { browser, page };
 }

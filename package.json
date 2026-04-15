@@ -25,6 +25,8 @@
     "node-cron": "^3.0.3",
     "puppeteer": "^24.40.0",
     "puppeteer-core": "^22.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "winston": "^3.13.0",
     "winston-daily-rotate-file": "^5.0.0"
   }
