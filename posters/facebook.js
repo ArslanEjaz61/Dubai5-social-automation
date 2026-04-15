@@ -159,12 +159,13 @@ async function postToFacebook(article, articleIndex) {
       });
 
       if (loginWallInfo) {
-        logger.info(`🖱️ Handled Meta "Log in with Facebook" wall (Force Click + Direct Nav)`);
+        logger.info(`🖱️ Handled Meta "Log in with Facebook" wall (Force Click + Asset Nav)`);
         await page.mouse.click(loginWallInfo.x, loginWallInfo.y);
         await delay(3000, 5000);
-        // Force navigate to composer as ultimate fallback
-        await page.goto('https://business.facebook.com/latest/composer', { waitUntil: 'networkidle2' });
-        await delay(8000, 12000); // Suite login is slow
+        // Force navigate to SPECIFIC composer as ultimate fallback
+        const assetId = process.env.FACEBOOK_ASSET_ID || '970837422790775';
+        await page.goto(`https://business.facebook.com/latest/composer/?asset_id=${assetId}`, { waitUntil: 'networkidle2' });
+        await delay(10000, 15000); // Suite login is slow
         await screenshot(page, `${articleIndex}-1b-after-suite-login`);
       }
 
