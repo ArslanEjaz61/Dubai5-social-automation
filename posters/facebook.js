@@ -342,7 +342,10 @@ async function postToFacebook(article, articleIndex) {
 
   let browser, page;
   try {
-    ({ browser, page } = await launchBrowser(true));
+    // On Linux servers, Meta Suite often omits the real composer in headless; use
+    // FACEBOOK_VISIBLE=true with Xvfb, e.g. `xvfb-run -a env FACEBOOK_VISIBLE=true node posters/facebook.js`
+    const headless = process.env.FACEBOOK_VISIBLE !== 'true';
+    ({ browser, page } = await launchBrowser(headless));
 
     // Load session
     await loadCookies(page, 'facebook');
