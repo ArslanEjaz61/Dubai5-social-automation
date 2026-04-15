@@ -184,11 +184,34 @@ async function postViaMbasic(article, articleIndex) {
     // ── Step 1: Login ────────────────────────────────────────────
     await page.goto('https://mbasic.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(1500, 2500);
+
+    // Handle profile-selection wall ("Continue" / "Use another profile")
+    const profileWall = await page.evaluate(() => {
+      const t = (document.body?.innerText || '');
+      return t.includes('Continue') && t.includes('Use another profile');
+    });
+    if (profileWall) {
+      logger.info('🖱️ Profile selection wall — clicking "Continue"…');
+      const continueClicked = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a, button, [role="button"]'));
+        const btn = links.find(el => {
+          const t = (el.textContent || '').trim();
+          return /^Continue$/i.test(t);
+        });
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      if (continueClicked) {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
+        await delay(2000, 3000);
+      }
+    }
+
     const needsLogin = page.url().includes('login') || (await page.$('#m_login_email'));
     if (needsLogin) {
       await loginViaMbasic(page);
     } else {
-      logger.info('✅ mbasic session still valid');
+      logger.info('✅ mbasic session active');
     }
     await screenshot(page, `${articleIndex}-1-mbasic-loggedin`);
 
