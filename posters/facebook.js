@@ -45,10 +45,110 @@ async function waitForSafe(page, selector, timeout = 8000) {
   } catch (e) { return null; }
 }
 
-/** Check if logged in to Facebook */
+/** Meta “Get started with business tools” landing — composer is NOT loaded here. */
+async function isBusinessToolsGateway(page) {
+  try {
+    return await page.evaluate(() => {
+      const t = (document.body && document.body.innerText) || '';
+      return (
+        t.includes('Log in to Business Tools from Meta') ||
+        t.includes('Get started with business tools from Meta')
+      );
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+/** True when the real Create post UI (same as your desktop screenshot) seems present. */
+async function hasComposerUi(page) {
+  try {
+    return await page.evaluate(() => {
+      const t = (document.body && document.body.innerText) || '';
+      return (
+        t.includes('Add photo') ||
+        t.includes('Add photo/video') ||
+        t.includes('Facebook Feed preview') ||
+        (t.includes('Post to') && t.includes('Publish'))
+      );
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+async function clickLogInWithFacebookButton(page) {
+  return page.evaluate(() => {
+    const nodes = Array.from(
+      document.querySelectorAll('button, [role="button"], a, div[role="button"]')
+    );
+    for (const el of nodes) {
+      const raw = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (/log in with facebook/i.test(raw)) {
+        el.click();
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * Server screenshot showed we stay on “Log in to Business Tools” — must click through before typing.
+ */
+async function ensurePastBusinessGateway(page, composerUrl, articleIndex) {
+  const maxRounds = 8;
+  for (let round = 1; round <= maxRounds; round++) {
+    if (await hasComposerUi(page)) {
+      logger.info('✅ Meta Suite composer UI ready');
+      return true;
+    }
+
+    if (await isBusinessToolsGateway(page)) {
+      logger.info(
+        `🚪 Meta Business Tools gateway — round ${round}/${maxRounds} (need “Log in with Facebook”)`
+      );
+      const clicked = await clickLogInWithFacebookButton(page);
+      if (!clicked) {
+        logger.warn('⚠️ “Log in with Facebook” not found — reloading composer…');
+        await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 }).catch(() => {});
+        await delay(6000, 10000);
+        continue;
+      }
+      await delay(3000, 5000);
+      try {
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 120000 });
+      } catch (e) {
+        await delay(10000, 15000);
+      }
+      await delay(4000, 7000);
+
+      if (await page.$('#email')) {
+        logger.info('🔐 Facebook login form opened — using FACEBOOK_EMAIL / FACEBOOK_PASSWORD…');
+        await loginToFacebook(page);
+      }
+
+      logger.info('🔗 Opening composer again…');
+      await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 });
+      await delay(8000, 14000);
+      await screenshot(page, `${articleIndex}-after-gateway-${round}`);
+      continue;
+    }
+
+    logger.info(`🔁 Composer not ready (round ${round}) — reloading…`);
+    await page.goto(composerUrl, { waitUntil: 'networkidle2', timeout: 120000 }).catch(() => {});
+    await delay(7000, 12000);
+  }
+
+  return await hasComposerUi(page);
+}
+
+/** Check if logged in to Facebook (URL); Business Tools marketing page = not “in” composer. */
 async function isLoggedIn(page) {
   const url = page.url();
-  return !url.includes('/login') && !url.includes('login.php') && !url.includes('/checkpoint');
+  if (url.includes('/login') || url.includes('login.php') || url.includes('/checkpoint')) return false;
+  if (await isBusinessToolsGateway(page)) return false;
+  return true;
 }
 
 /** Login to Facebook with credentials */
@@ -354,38 +454,26 @@ async function postToFacebook(article, articleIndex) {
     await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 90000 });
     await delay(6000, 10000); // Suite is heavy, wait for it to settle
 
-    if (!await isLoggedIn(page)) {
-      logger.warn('⚠️ Facebook session expired — logging in...');
+    const startUrl = page.url();
+    if (startUrl.includes('login.php') || startUrl.includes('/checkpoint')) {
+      logger.warn('⚠️ Facebook login/challenge URL — logging in via www…');
       await loginToFacebook(page);
-      await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 90000 });
+      await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 120000 });
       await delay(6000, 10000);
     }
-    
-    logger.info('✅ Logged in to Meta Business Suite');
+
+    // Marketing “Business Tools” page is NOT composer — click through first (server screenshots).
+    const composerReady = await ensurePastBusinessGateway(page, FB_SUITE_URL, articleIndex);
+    if (!composerReady) {
+      throw new Error('Could not reach Meta Suite composer (Business Tools gateway or Meta block)');
+    }
+
+    logger.info('✅ Meta Suite composer open');
     await screenshot(page, `${articleIndex}-1-suite-loaded`);
- 
-    // ── Meta Suite can show overlays, Profile Selection, or Get Started walls ──
+
+    // ── Overlays: Profile selection wall, etc. ──
     try {
-      // 1. Check for Meta Business Tools "Log in with Facebook" wall (fb-composer-fail.png)
-      const loginWallInfo = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button, [role="button"], a'));
-        const btn = btns.find(b => b.textContent.trim().toLowerCase() === 'log in with facebook');
-        if (!btn) return null;
-        const r = btn.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-      });
-
-      if (loginWallInfo) {
-        logger.info(`🖱️ Handled Meta "Log in with Facebook" wall (Force Click + Asset Nav)`);
-        await page.mouse.click(loginWallInfo.x, loginWallInfo.y);
-        await delay(3000, 5000);
-        // Force navigate to SPECIFIC composer as ultimate fallback
-        await page.goto(getComposerUrl(), { waitUntil: 'networkidle2', timeout: 90000 });
-        await delay(10000, 15000); // Suite login is slow
-        await screenshot(page, `${articleIndex}-1b-after-suite-login`);
-      }
-
-      // 2. Check for the "Continue" profile wall (as seen in fb-login-fail.png)
+      // “Continue” profile wall (fb-login-fail.png)
       const profileWallInfo = await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('div[role="button"], button, a'));
         const btn = btns.find(b => {
