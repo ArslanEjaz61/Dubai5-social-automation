@@ -100,6 +100,64 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/** Open Page composer — FB UI varies (aria-labels, composer links, plain text). */
+async function openWwwPageComposer(page) {
+  const tryOnce = () =>
+    page.evaluate(() => {
+      const h = (s) => (s || '').toLowerCase();
+
+      const link = document.querySelector(
+        'a[href*="composer"], a[href*="intent/post"], a[href*="/stories/composer"]'
+      );
+      if (link) {
+        link.click();
+        return 'composer-link';
+      }
+
+      for (const el of document.querySelectorAll('[aria-label]')) {
+        const al = h(el.getAttribute('aria-label'));
+        if (al.includes('what') && al.includes('mind')) {
+          el.click();
+          return 'aria-whats-on-mind';
+        }
+        if (al.includes('write something') || al.includes('write a post')) {
+          el.click();
+          return 'aria-write';
+        }
+      }
+
+      const candidates = document.querySelectorAll(
+        '[role="button"], [role="link"], span, div[role="button"], button'
+      );
+      for (const el of candidates) {
+        const t = h((el.textContent || '').replace(/\s+/g, ' ').trim());
+        if (t.includes('what') && t.includes('mind')) {
+          el.click();
+          return 'text-whats-on-mind';
+        }
+        if (t === 'create post' || t.startsWith('create post')) {
+          el.click();
+          return 'create-post';
+        }
+        if (t.includes('write something') || t.includes('write post')) {
+          el.click();
+          return 'write-something';
+        }
+      }
+      return '';
+    });
+
+  for (let round = 1; round <= 4; round++) {
+    const r = await tryOnce();
+    if (r) {
+      logger.info(`🖱️ Composer opened (${r})`);
+      return true;
+    }
+    await delay(1200, 2000);
+  }
+  return false;
+}
+
 /** Help debug wrong-profile posts (personal vs Page). */
 async function logPostingIdentity(page) {
   const info = await page.evaluate(() => {
@@ -249,7 +307,7 @@ async function fillWwwPostComposer(page, text, maxWaitMs) {
       );
       for (const el of candidates) {
         const r = el.getBoundingClientRect();
-        if (r.width < 120 || r.height < 20) continue;
+        if (r.width < 80 || r.height < 18) continue;
         const lab = (el.getAttribute('aria-label') || '').toLowerCase();
         if (lab.includes('search')) continue;
         el.focus();
@@ -312,50 +370,24 @@ async function postViaWwwFacebook(article, articleIndex) {
     const pageUrl = getWwwFacebookPageUrl();
     logger.info(`🔗 Opening Facebook Page (www): ${pageUrl.substring(0, 72)}…`);
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-    await delay(4000, 6000);
+    await delay(5000, 8000);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await delay(800, 1200);
     await screenshot(page, `${articleIndex}-2-page-loaded`);
 
-    // ── Step 3: Switch to posting as Page (if needed) ────────────
-    // Click the "Create post" / "What's on your mind" area on the Page
-    logger.info('🖱️ Looking for "Create post" on Page…');
-
-    const createPostClicked = await page.evaluate(() => {
-      // On a FB Page, there's usually a "Create post" button or "What's on your mind" prompt
-      const allEls = Array.from(document.querySelectorAll(
-        '[role="button"], span, div[role="button"], button'
-      ));
-      const target = allEls.find(el => {
-        const t = (el.textContent || '').trim().toLowerCase();
-        return (
-          t === 'create post' ||
-          t.includes("what's on your mind") ||
-          t.includes('write something') ||
-          t === 'write post'
-        );
-      });
-      if (target) { target.click(); return true; }
-      return false;
-    });
-
-    if (createPostClicked) {
-      logger.info('✅ Opened "Create post" dialog');
-      await delay(3000, 5000);
-    } else {
-      logger.warn('⚠️ "Create post" button not found — trying direct composer click…');
-      // Try clicking the placeholder text area (gray box at top of page timeline)
-      const placeholderClicked = await page.evaluate(() => {
-        const spans = Array.from(document.querySelectorAll('span'));
-        const ph = spans.find(s => {
-          const t = (s.textContent || '').toLowerCase();
-          return t.includes("what's on your mind") || t.includes('write something');
-        });
-        if (ph) { ph.click(); return true; }
-        return false;
-      });
-      if (placeholderClicked) {
-        await delay(3000, 5000);
+    // ── Step 3: Open Page composer (many FB UI variants) ─────────
+    logger.info('🖱️ Opening Page composer…');
+    const opened = await openWwwPageComposer(page);
+    if (!opened) {
+      logger.warn('⚠️ Standard composer openers missed — trying numeric Page URL…');
+      const alt = `https://www.facebook.com/${FB_PAGE_ID}`;
+      if (pageUrl !== alt) {
+        await page.goto(alt, { waitUntil: 'networkidle2', timeout: 60000 });
+        await delay(5000, 7000);
+        await openWwwPageComposer(page);
       }
     }
+    await delay(3000, 5000);
     await screenshot(page, `${articleIndex}-3-composer-open`);
     await logPostingIdentity(page);
 
@@ -363,7 +395,7 @@ async function postViaWwwFacebook(article, articleIndex) {
     const content = buildPostContent(article);
     logger.info('⌨️ Filling post composer…');
 
-    const filled = await fillWwwPostComposer(page, content, 45000);
+    const filled = await fillWwwPostComposer(page, content, 70000);
     if (!filled) {
       await screenshot(page, `${articleIndex}-ERR-no-textbox`);
       throw new Error('Could not find Facebook post composer. Run `node setup.js` and re-login.');
