@@ -100,12 +100,63 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/** True when the top login form is visible (guest / expired session on www). */
+async function isWwwFacebookHeaderLoginVisible(page) {
+  return page.evaluate(() => {
+    const pass = document.querySelector('#pass, input[name="pass"][type="password"]');
+    const email = document.querySelector('#email, input[name="email"], input[type="text"][placeholder*="Email" i], input[placeholder*="phone" i]');
+    if (!pass || !email) return false;
+    const r = pass.getBoundingClientRect();
+    return r.top >= 0 && r.top < 160 && r.width > 20;
+  });
+}
+
+/** Logged-out Page / feed nags (“Log in or sign up for Facebook…”). */
+async function isWwwFacebookGuestBanner(page) {
+  return page.evaluate(() => {
+    const t = (document.body?.innerText || '').toLowerCase();
+    return t.includes('log in or sign up for facebook');
+  });
+}
+
+/** “Quick login” / account picker (Continue as …). */
+async function isWwwFacebookQuickLogin(page) {
+  return page.evaluate(() => {
+    const body = document.body?.innerText || '';
+    if (!/explore the things you love/i.test(body)) return false;
+    return Array.from(document.querySelectorAll('[role="button"], button')).some(b =>
+      /^continue$/i.test((b.textContent || '').replace(/\s+/g, ' ').trim())
+    );
+  });
+}
+
+/**
+ * If Page load is guest or we hit Continue gate, reload home, click Continue, then reopen target URL.
+ */
+async function ensureWwwFacebookAuthenticatedForTarget(page, targetPageUrl) {
+  await ensureWwwFacebookSessionReady(page, 2);
+  const bad =
+    (await isWwwFacebookHeaderLoginVisible(page)) ||
+    (await isWwwFacebookQuickLogin(page)) ||
+    (await isWwwFacebookGuestBanner(page));
+  if (!bad) return;
+
+  logger.warn('⚠️ Facebook session incomplete (login / Continue gate) — recovering via facebook.com…');
+  await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
+  await delay(4000, 6000);
+  await ensureWwwFacebookSessionReady(page, 4);
+  logger.info(`🔗 Re-opening Page: ${targetPageUrl.substring(0, 72)}…`);
+  await page.goto(targetPageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+  await delay(5000, 8000);
+  await ensureWwwFacebookSessionReady(page, 3);
+}
+
 /**
  * Cookie sessions often land on “Quick login” with a Continue button — must click before feed/Page UI works.
  * Facebook is a SPA: do not use waitForNavigation (it can hang ~90s each time and re-find Continue in a loop).
  */
-async function ensureWwwFacebookSessionReady(page) {
-  for (let round = 0; round < 2; round++) {
+async function ensureWwwFacebookSessionReady(page, maxRounds = 2) {
+  for (let round = 0; round < maxRounds; round++) {
     const clicked = await page.evaluate(() => {
       const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
       const tryClick = (el) => {
@@ -496,7 +547,7 @@ async function postViaWwwFacebook(article, articleIndex) {
     logger.info('🔗 Navigating to facebook.com…');
     await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(3000, 5000);
-    await ensureWwwFacebookSessionReady(page);
+    await ensureWwwFacebookSessionReady(page, 2);
 
     const url = page.url();
     if (url.includes('/login') || url.includes('login.php')) {
@@ -510,17 +561,21 @@ async function postViaWwwFacebook(article, articleIndex) {
 
     // ── Step 2: Navigate to Facebook Page ────────────────────────
     const pageUrl = getWwwFacebookPageUrl();
+    let timelineVerifyUrl = pageUrl;
     logger.info(`🔗 Opening Facebook Page (www): ${pageUrl.substring(0, 72)}…`);
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(5000, 8000);
-    await ensureWwwFacebookSessionReady(page);
+    await ensureWwwFacebookAuthenticatedForTarget(page, pageUrl);
     if (await isWwwFacebookErrorPage(page)) {
       logger.warn('⚠️ Page URL returned an error view — trying numeric /{id}/ …');
-      await page.goto(`https://www.facebook.com/${FB_PAGE_ID}`, { waitUntil: 'networkidle2', timeout: 60000 });
+      const alt = `https://www.facebook.com/${FB_PAGE_ID}`;
+      timelineVerifyUrl = alt;
+      await page.goto(alt, { waitUntil: 'networkidle2', timeout: 60000 });
       await delay(4000, 6000);
-      await ensureWwwFacebookSessionReady(page);
+      await ensureWwwFacebookAuthenticatedForTarget(page, alt);
     }
     await dismissWwwBlockingOverlays(page);
+    await ensureWwwFacebookAuthenticatedForTarget(page, timelineVerifyUrl);
     await page.evaluate(() => window.scrollTo(0, 0));
     await delay(800, 1200);
     await screenshot(page, `${articleIndex}-2-page-loaded`);
@@ -532,8 +587,10 @@ async function postViaWwwFacebook(article, articleIndex) {
       logger.warn('⚠️ Standard composer openers missed — trying numeric Page URL…');
       const alt = `https://www.facebook.com/${FB_PAGE_ID}`;
       if (pageUrl !== alt) {
+        timelineVerifyUrl = alt;
         await page.goto(alt, { waitUntil: 'networkidle2', timeout: 60000 });
         await delay(5000, 7000);
+        await ensureWwwFacebookAuthenticatedForTarget(page, alt);
         await openWwwPageComposer(page);
       }
     }
@@ -581,7 +638,7 @@ async function postViaWwwFacebook(article, articleIndex) {
     await delay(8000, 12000);
     await screenshot(page, `${articleIndex}-5-after-post-click`);
 
-    const verified = await verifyArticleOnPageTimeline(page, pageUrl, article);
+    const verified = await verifyArticleOnPageTimeline(page, timelineVerifyUrl, article);
     if (!verified) {
       await screenshot(page, `${articleIndex}-ERR-not-on-timeline`);
       throw new Error(
