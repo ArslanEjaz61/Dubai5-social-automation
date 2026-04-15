@@ -100,6 +100,37 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/** True if any frame has a usable composer field (often inside an iframe). */
+async function hasWwwComposerTextbox(page) {
+  for (const frame of page.frames()) {
+    try {
+      const ok = await frame.evaluate(() => {
+        const bad = (el) => {
+          const lab = (el.getAttribute('aria-label') || '').toLowerCase();
+          if (lab.includes('search')) return true;
+          return false;
+        };
+        const list = Array.from(
+          document.querySelectorAll(
+            '[role="textbox"][contenteditable="true"],' +
+              'div[contenteditable="true"][data-testid],' +
+              'div[contenteditable="true"][data-lexical-editor="true"],' +
+              'div[contenteditable="true"]'
+          )
+        );
+        for (const el of list) {
+          if (bad(el)) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width >= 60 && r.height >= 16 && r.bottom > 0 && r.right > 0) return true;
+        }
+        return false;
+      });
+      if (ok) return true;
+    } catch (e) { /* cross-origin iframe */ }
+  }
+  return false;
+}
+
 /** Open Page composer — FB UI varies (aria-labels, composer links, plain text). */
 async function openWwwPageComposer(page) {
   const tryOnce = () =>
@@ -158,6 +189,23 @@ async function openWwwPageComposer(page) {
   return false;
 }
 
+/** Some sessions only expose the composer after sk=create (or equivalent). */
+async function openWwwPageComposerViaSkCreate(page, pageId) {
+  const u = `https://www.facebook.com/profile.php?id=${encodeURIComponent(pageId)}&sk=create`;
+  try {
+    await page.goto(u, { waitUntil: 'networkidle2', timeout: 60000 });
+    await delay(4000, 6000);
+    if (await hasWwwComposerTextbox(page)) {
+      logger.info('🖱️ Composer visible after sk=create URL');
+      return true;
+    }
+    await openWwwPageComposer(page);
+    return hasWwwComposerTextbox(page);
+  } catch (e) {
+    return false;
+  }
+}
+
 /** Help debug wrong-profile posts (personal vs Page). */
 async function logPostingIdentity(page) {
   const info = await page.evaluate(() => {
@@ -209,79 +257,93 @@ async function verifyArticleOnPageTimeline(page, pageUrl, article) {
   return false;
 }
 
-/** Click Post / Share / composer submit (waits until enabled). */
+function evaluateClickComposerSubmit() {
+  const tryClick = (el) => {
+    if (!el || el.getAttribute?.('aria-disabled') === 'true' || el.disabled) return false;
+    el.click();
+    return true;
+  };
+  const byTest = document.querySelector(
+    '[data-testid="composer-post-button"],' +
+      '[data-testid="post-creation-submit-button"],' +
+      '[data-testid="composer-submit-button"],' +
+      '[aria-label="Post"][role="button"],' +
+      '[aria-label="Share to News Feed"][role="button"],' +
+      '[aria-label="Share"][role="button"]'
+  );
+  if (byTest && tryClick(byTest)) return 'testid';
+
+  for (const b of document.querySelectorAll('[role="button"][aria-label]')) {
+    const lab = (b.getAttribute('aria-label') || '').toLowerCase();
+    if (
+      (lab.includes('post') || lab.includes('share')) &&
+      !lab.includes('photo') &&
+      !lab.includes('comment')
+    ) {
+      if (tryClick(b)) return 'aria-label';
+    }
+  }
+
+  const spans = Array.from(document.querySelectorAll('span'));
+  for (const s of spans) {
+    const t = (s.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!/^(Post|Share|Publish)$/i.test(t)) continue;
+    let p = s;
+    for (let i = 0; i < 8 && p; i++) {
+      if (p.getAttribute?.('role') === 'button') {
+        if (p.getAttribute('aria-disabled') !== 'true' && p.offsetParent !== null) {
+          p.click();
+          return 'span-parent';
+        }
+        break;
+      }
+      p = p.parentElement;
+    }
+  }
+
+  const btns = Array.from(document.querySelectorAll('[role="button"], button'));
+  for (const b of btns) {
+    const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!/^(Post|Share|Publish)$/i.test(t)) continue;
+    if (b.getAttribute('aria-disabled') === 'true') continue;
+    if (b.offsetParent === null) continue;
+    b.click();
+    return 'text';
+  }
+  return '';
+}
+
+/** Click Post / Share / composer submit (waits until enabled). Checks all frames (composer often in iframe). */
 async function clickWwwPostSubmit(page, maxWaitMs) {
   const start = Date.now();
   let nextClicked = false;
   while (Date.now() - start < maxWaitMs) {
-    const clicked = await page.evaluate(() => {
-      const tryClick = (el) => {
-        if (!el || el.getAttribute?.('aria-disabled') === 'true' || el.disabled) return false;
-        el.click();
-        return true;
-      };
-      const byTest = document.querySelector(
-        '[data-testid="composer-post-button"],' +
-          '[data-testid="post-creation-submit-button"],' +
-          '[data-testid="composer-submit-button"],' +
-          '[aria-label="Post"][role="button"],' +
-          '[aria-label="Share to News Feed"][role="button"],' +
-          '[aria-label="Share"][role="button"]'
-      );
-      if (byTest && tryClick(byTest)) return 'testid';
-
-      for (const b of document.querySelectorAll('[role="button"][aria-label]')) {
-        const lab = (b.getAttribute('aria-label') || '').toLowerCase();
-        if (
-          (lab.includes('post') || lab.includes('share')) &&
-          !lab.includes('photo') &&
-          !lab.includes('comment')
-        ) {
-          if (tryClick(b)) return 'aria-label';
-        }
-      }
-
-      const spans = Array.from(document.querySelectorAll('span'));
-      for (const s of spans) {
-        const t = (s.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!/^(Post|Share|Publish)$/i.test(t)) continue;
-        let p = s;
-        for (let i = 0; i < 8 && p; i++) {
-          if (p.getAttribute?.('role') === 'button') {
-            if (p.getAttribute('aria-disabled') !== 'true' && p.offsetParent !== null) {
-              p.click();
-              return 'span-parent';
-            }
-            break;
-          }
-          p = p.parentElement;
-        }
-      }
-
-      const btns = Array.from(document.querySelectorAll('[role="button"], button'));
-      for (const b of btns) {
-        const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!/^(Post|Share|Publish)$/i.test(t)) continue;
-        if (b.getAttribute('aria-disabled') === 'true') continue;
-        if (b.offsetParent === null) continue;
-        b.click();
-        return 'text';
-      }
-      return '';
-    });
+    let clicked = '';
+    for (const frame of page.frames()) {
+      try {
+        clicked = await frame.evaluate(evaluateClickComposerSubmit);
+        if (clicked) break;
+      } catch (e) { /* cross-origin */ }
+    }
     if (clicked) return true;
 
     // Some flows show "Next" before the final Post
     if (!nextClicked && Date.now() - start > 12000) {
-      const nextOk = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('[role="button"], button'));
-        const n = btns.find(b => /^Next$/i.test((b.textContent || '').trim()));
-        if (n && n.getAttribute('aria-disabled') !== 'true') {
-          n.click();
-          return true;
-        }
-        return false;
-      });
+      let nextOk = false;
+      for (const frame of page.frames()) {
+        try {
+          nextOk = await frame.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('[role="button"], button'));
+            const n = btns.find(b => /^Next$/i.test((b.textContent || '').trim()));
+            if (n && n.getAttribute('aria-disabled') !== 'true') {
+              n.click();
+              return true;
+            }
+            return false;
+          });
+          if (nextOk) break;
+        } catch (e) { /* cross-origin */ }
+      }
       if (nextOk) {
         nextClicked = true;
         await delay(2000, 3500);
@@ -294,34 +356,49 @@ async function clickWwwPostSubmit(page, maxWaitMs) {
 }
 
 /**
- * Find a visible composer on www.facebook.com and insert text (no fragile waitForSelector).
+ * Find a visible composer on www.facebook.com and insert text (composer is often in an iframe).
  */
 async function fillWwwPostComposer(page, text, maxWaitMs) {
   const start = Date.now();
   while (Date.now() - start < maxWaitMs) {
-    const ok = await page.evaluate((t) => {
-      const candidates = Array.from(
-        document.querySelectorAll(
-          '[role="textbox"][contenteditable="true"], div[contenteditable="true"][data-testid], div[contenteditable="true"]'
-        )
-      );
-      for (const el of candidates) {
-        const r = el.getBoundingClientRect();
-        if (r.width < 80 || r.height < 18) continue;
-        const lab = (el.getAttribute('aria-label') || '').toLowerCase();
-        if (lab.includes('search')) continue;
-        el.focus();
-        try {
-          el.click();
-        } catch (e) { /* ignore */ }
-        if (el.isContentEditable || el.getAttribute('role') === 'textbox') {
-          document.execCommand('insertText', false, t);
-          return true;
-        }
-      }
-      return false;
-    }, text);
-    if (ok) return true;
+    for (const frame of page.frames()) {
+      try {
+        const ok = await frame.evaluate((t) => {
+          const bad = (el) => {
+            const lab = (el.getAttribute('aria-label') || '').toLowerCase();
+            if (lab.includes('search')) return true;
+            const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+            if (ph.includes('search')) return true;
+            return false;
+          };
+          const candidates = Array.from(
+            document.querySelectorAll(
+              '[role="textbox"][contenteditable="true"],' +
+                'div[contenteditable="true"][data-testid],' +
+                'div[contenteditable="true"][data-lexical-editor="true"],' +
+                'div[contenteditable="true"][spellcheck="true"],' +
+                'div[contenteditable="true"]'
+            )
+          );
+          for (const el of candidates) {
+            if (bad(el)) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width < 60 || r.height < 14) continue;
+            if (r.bottom <= 0 || r.right <= 0) continue;
+            el.focus();
+            try {
+              el.click();
+            } catch (e) { /* ignore */ }
+            if (el.isContentEditable || el.getAttribute('role') === 'textbox') {
+              document.execCommand('insertText', false, t);
+              return true;
+            }
+          }
+          return false;
+        }, text);
+        if (ok) return true;
+      } catch (e) { /* cross-origin */ }
+    }
     await delay(800, 1500);
   }
   return false;
@@ -388,6 +465,17 @@ async function postViaWwwFacebook(article, articleIndex) {
       }
     }
     await delay(3000, 5000);
+
+    if (!(await hasWwwComposerTextbox(page))) {
+      logger.warn('⚠️ No composer field yet — trying profile.php?…&sk=create…');
+      await openWwwPageComposerViaSkCreate(page, FB_PAGE_ID);
+      await delay(2000, 4000);
+    }
+    if (!(await hasWwwComposerTextbox(page))) {
+      await openWwwPageComposer(page);
+      await delay(3000, 5000);
+    }
+
     await screenshot(page, `${articleIndex}-3-composer-open`);
     await logPostingIdentity(page);
 
