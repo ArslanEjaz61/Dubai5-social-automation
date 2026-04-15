@@ -146,10 +146,27 @@ async function postToFacebook(article, articleIndex) {
     
     logger.info('✅ Logged in to Meta Business Suite');
     await screenshot(page, `${articleIndex}-1-suite-loaded`);
-
-    // ── Meta Suite can show overlays or Profile Selection walls ────────
+ 
+    // ── Meta Suite can show overlays, Profile Selection, or Get Started walls ──
     try {
-      // Check for the "Continue" profile wall (as seen in fb-failure.png)
+      // 1. Check for Meta Business Tools "Log in with Facebook" wall (fb-composer-fail.png)
+      const getStartedWall = await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
+        const loginBtn = btns.find(b => b.textContent.trim().toLowerCase() === 'log in with facebook');
+        if (loginBtn) {
+          loginBtn.click();
+          return true;
+        }
+        return false;
+      });
+
+      if (getStartedWall) {
+        logger.info('🖱️ Handled Meta "Log in with Facebook" landing wall');
+        await delay(5000, 8000);
+        await screenshot(page, `${articleIndex}-1b-after-suite-login`);
+      }
+
+      // 2. Check for the "Continue" profile wall (as seen in fb-failure.png)
       const profileWall = await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
         const continueBtn = btns.find(b => {
@@ -165,7 +182,7 @@ async function postToFacebook(article, articleIndex) {
       
       if (profileWall) {
         logger.info('🖱️ Handled Facebook Profile Selection Wall (Clicked Continue)');
-        await delay(3000, 5000);
+        await delay(5000, 8000);
       }
 
       const closePopup = await page.$('[aria-label="Close"]');
