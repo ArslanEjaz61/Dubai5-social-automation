@@ -56,7 +56,32 @@ async function loginToFacebook(page) {
   } catch (e) {}
 
   const emailInput = await waitForSafe(page, '#email', 10000);
-  if (!emailInput) throw new Error('Facebook login page did not load');
+  
+  if (!emailInput) {
+    // Check for "Profile Wall" during login (fb-login-fail.png)
+    const profileWallClicked = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+      const continueBtn = btns.find(b => {
+        const t = b.textContent.trim().toLowerCase();
+        return t === 'continue' || t.includes('continue as');
+      });
+      if (continueBtn) {
+        continueBtn.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (profileWallClicked) {
+      logger.info('🖱️ Handled Profile selection wall during login flow');
+      await delay(3000, 5000);
+      // After clicking continue, it might load the password field or the home page
+      if (await isLoggedIn(page)) return;
+      return loginToFacebook(page); // Recursive retry once profile is selected
+    }
+    
+    throw new Error('Facebook login page did not load');
+  }
 
   await emailInput.click();
   await page.keyboard.type(email, { delay: 40 });
