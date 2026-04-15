@@ -1,6 +1,7 @@
 require('dotenv').config();
 const path = require('path');
 const fs = require('fs-extra');
+const axios = require('axios');
 const logger = require('../logger');
 const { launchBrowser } = require('../browser');
 const { loadCookies, saveCookies } = require('../setup');
@@ -118,10 +119,79 @@ function buildPostContent(article) {
   return content;
 }
 
+const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v21.0';
+
+function graphErrorMessage(err) {
+  return err.response?.data?.error?.message || err.message;
+}
+
 /**
- * Post article to Facebook Page via Meta Business Suite
+ * Post to Facebook Page via Graph API (server-safe: no Business Suite / headless).
+ * Requires FACEBOOK_PAGE_ID + FACEBOOK_PAGE_ACCESS_TOKEN (Page token with pages_manage_posts).
+ */
+async function postToFacebookGraph(article, articleIndex) {
+  const pageId = process.env.FACEBOOK_PAGE_ID;
+  const token = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+  const titlePreview = (article.title || '').substring(0, 50);
+  logger.info(`\n📘 Facebook (Graph API) → Article ${articleIndex + 1}: "${titlePreview}..."`);
+
+  const message = buildPostContent(article);
+  const base = `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`;
+
+  try {
+    const imageUrl = article.imageUrl && String(article.imageUrl).trim();
+    const canPhoto = imageUrl && /^https?:\/\//i.test(imageUrl);
+
+    if (canPhoto) {
+      try {
+        const { data } = await axios.post(`${base}/photos`, null, {
+          params: {
+            url: imageUrl,
+            caption: message,
+            access_token: token,
+            published: true
+          },
+          timeout: 60000
+        });
+        logger.info(`✅ Facebook photo post created id=${data.id}`);
+        await markPosted(articleIndex, 'facebook', true);
+        return true;
+      } catch (photoErr) {
+        logger.warn(`⚠️ FB Graph photo failed (${graphErrorMessage(photoErr)}), trying link post…`);
+      }
+    }
+
+    const link =
+      article.articleUrl ||
+      process.env.WEBSITE_URL ||
+      'https://dubai5.space';
+    const { data } = await axios.post(`${base}/feed`, null, {
+      params: {
+        message,
+        link,
+        access_token: token
+      },
+      timeout: 60000
+    });
+    logger.info(`✅ Facebook feed post created id=${data.id}`);
+    await markPosted(articleIndex, 'facebook', true);
+    return true;
+  } catch (err) {
+    const msg = graphErrorMessage(err);
+    logger.error(`❌ Facebook Graph API failed: ${msg}`);
+    await markPosted(articleIndex, 'facebook', false, msg);
+    return false;
+  }
+}
+
+/**
+ * Post article to Facebook Page via Meta Business Suite (browser) unless Graph API env is set.
  */
 async function postToFacebook(article, articleIndex) {
+  if (process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
+    return postToFacebookGraph(article, articleIndex);
+  }
+
   logger.info(`\n📘 Facebook (Meta Suite) → Article ${articleIndex + 1}: "${article.title.substring(0, 50)}..."`);
 
   const FB_SUITE_URL = `https://business.facebook.com/latest/composer/?asset_id=970837422790775&nav_ref=internal_nav&ref=biz_web_home_create_post&context_ref=HOME`;
