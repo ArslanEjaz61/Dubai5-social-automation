@@ -192,8 +192,21 @@ async function postViaMbasic(article, articleIndex) {
 
     // ── Step 2: Navigate to Page ─────────────────────────────────
     logger.info(`🔗 Opening Page ${pageId} on mbasic…`);
+
+    // Re-apply saved cookies (login domain = mbasic, but page redirect may drop them)
+    await loadCookies(page, 'facebook');
     await page.goto(`https://mbasic.facebook.com/${pageId}`, { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(2000, 3000);
+
+    // If page navigation lost session, try www.facebook.com page URL as fallback
+    const pageBody = await page.evaluate(() => (document.body?.innerText || '').substring(0, 600));
+    if (pageBody.includes('Log in to Facebook') || pageBody.includes('Log In') || page.url().includes('login')) {
+      logger.warn('⚠️ mbasic session lost on page nav — reloading with fresh cookies…');
+      await loadCookies(page, 'facebook');
+      await page.goto(`https://mbasic.facebook.com/${pageId}`, { waitUntil: 'networkidle2', timeout: 60000 });
+      await delay(2000, 3000);
+    }
+
     await screenshot(page, `${articleIndex}-2-mbasic-page`);
 
     // mbasic page may show "Write Post" link or have a composer form
