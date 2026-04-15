@@ -103,32 +103,40 @@ async function postToFacebookGraph(article, articleIndex) {
 //  Works on AWS / datacenter IPs where business.facebook.com blocks the UI.
 // ════════════════════════════════════════════════════════════════════════════
 
-async function loginViaMbasic(page) {
+/**
+ * Login via mbasic, then immediately navigate to the Page in the same session.
+ * Returns true if we land on the Page with a working session.
+ */
+async function loginAndGoToPage(page, pageId) {
   const email = process.env.FACEBOOK_EMAIL;
   const password = process.env.FACEBOOK_PASSWORD;
   if (!email || !password) throw new Error('FACEBOOK_EMAIL/PASSWORD not set in .env');
 
-  logger.info('🔐 Logging in via mbasic.facebook.com…');
-  await page.goto('https://mbasic.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
+  const pageUrl = `https://mbasic.facebook.com/${pageId}`;
+
+  // Go to the page URL directly — if not logged in, mbasic redirects to login with next=pageUrl
+  logger.info('🔐 Opening mbasic page (will login if needed)…');
+  await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
   await delay(1500, 2500);
 
-  const emailField = await waitForSafe(page, '#m_login_email', 8000)
-    || await waitForSafe(page, 'input[name="email"]', 5000);
+  // Check if we need to login
+  const needsLogin = page.url().includes('login') || !!(await page.$('#m_login_email'))
+    || !!(await page.$('input[name="email"]'));
 
-  if (!emailField) {
-    const bodyText = await page.evaluate(() => document.body?.innerText || '');
-    if (bodyText.includes('News Feed') || bodyText.includes('Write Post') || bodyText.includes('Timeline')) {
-      logger.info('✅ Already logged in (mbasic)');
-      return;
+  if (!needsLogin) {
+    const bodyText = await page.evaluate(() => (document.body?.innerText || '').substring(0, 500));
+    if (!bodyText.includes('Log in to Facebook') && !bodyText.includes('Log In')) {
+      logger.info('✅ Already logged in — on Page');
+      await saveCookies(page, 'facebook');
+      return true;
     }
-    await screenshot(page, 'mbasic-no-login-field');
-    throw new Error('mbasic login form not found and not logged in');
   }
 
-  await page.evaluate((sel) => {
-    const el = document.querySelector(sel);
+  logger.info('🔐 Filling login form on mbasic…');
+  await page.evaluate(() => {
+    const el = document.querySelector('#m_login_email') || document.querySelector('input[name="email"]');
     if (el) { el.value = ''; el.focus(); }
-  }, emailField ? '#m_login_email' : 'input[name="email"]');
+  });
   await page.keyboard.type(email, { delay: 25 });
   await delay(300, 600);
 
@@ -149,31 +157,41 @@ async function loginViaMbasic(page) {
   await delay(2000, 3000);
 
   const afterUrl = page.url();
-  if (afterUrl.includes('login') && !afterUrl.includes('save-device') && !afterUrl.includes('checkpoint')) {
-    await screenshot(page, 'mbasic-login-failed');
-    throw new Error('mbasic Facebook login failed — check credentials');
-  }
 
   if (afterUrl.includes('checkpoint')) {
     await screenshot(page, 'mbasic-checkpoint');
     throw new Error('Facebook checkpoint — verify identity at facebook.com first');
   }
 
+  // "Save device" prompt
   if (afterUrl.includes('save-device') || afterUrl.includes('login_save')) {
     logger.info('📱 "Save device" prompt — skipping…');
-    const skipLink = await page.evaluateHandle(() => {
+    await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll('a'));
-      return links.find(a => /not now|skip|ok/i.test(a.textContent));
+      const skip = links.find(a => /not now|skip|ok/i.test(a.textContent));
+      if (skip) skip.click();
     });
-    if (skipLink && await skipLink.asElement()) {
-      await skipLink.asElement().click();
-      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
-      await delay(1500, 2500);
-    }
+    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
+    await delay(1500, 2500);
   }
 
   await saveCookies(page, 'facebook');
   logger.info('✅ mbasic login successful!');
+
+  // After login, mbasic should redirect to next=pageUrl; if not, navigate explicitly
+  const currentUrl = page.url();
+  if (!currentUrl.includes(pageId)) {
+    logger.info('🔗 Navigating to Page after login…');
+    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+    await delay(2000, 3000);
+  }
+
+  const bodyText = await page.evaluate(() => (document.body?.innerText || '').substring(0, 500));
+  if (bodyText.includes('Log in to Facebook') || bodyText.includes('Log In')) {
+    throw new Error('mbasic: still on login page after successful login');
+  }
+
+  return true;
 }
 
 async function postViaMbasic(article, articleIndex) {
@@ -184,29 +202,9 @@ async function postViaMbasic(article, articleIndex) {
   let browser, page;
   try {
     ({ browser, page } = await launchBrowser(true));
-    // Don't load old cookies — they cause mbasic to show "profile wall" instead of login form.
-
-    // ── Step 1: Login ────────────────────────────────────────────
-    await loginViaMbasic(page);
+    // ── Step 1+2: Login directly on the Page URL (same session, no redirect loss) ──
+    await loginAndGoToPage(page, pageId);
     await screenshot(page, `${articleIndex}-1-mbasic-loggedin`);
-
-    // ── Step 2: Navigate to Page ─────────────────────────────────
-    logger.info(`🔗 Opening Page ${pageId} on mbasic…`);
-
-    // Re-apply saved cookies (login domain = mbasic, but page redirect may drop them)
-    await loadCookies(page, 'facebook');
-    await page.goto(`https://mbasic.facebook.com/${pageId}`, { waitUntil: 'networkidle2', timeout: 60000 });
-    await delay(2000, 3000);
-
-    // If page navigation lost session, try www.facebook.com page URL as fallback
-    const pageBody = await page.evaluate(() => (document.body?.innerText || '').substring(0, 600));
-    if (pageBody.includes('Log in to Facebook') || pageBody.includes('Log In') || page.url().includes('login')) {
-      logger.warn('⚠️ mbasic session lost on page nav — reloading with fresh cookies…');
-      await loadCookies(page, 'facebook');
-      await page.goto(`https://mbasic.facebook.com/${pageId}`, { waitUntil: 'networkidle2', timeout: 60000 });
-      await delay(2000, 3000);
-    }
-
     await screenshot(page, `${articleIndex}-2-mbasic-page`);
 
     // mbasic page may show "Write Post" link or have a composer form
