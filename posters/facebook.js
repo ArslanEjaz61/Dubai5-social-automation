@@ -100,6 +100,57 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/** Help debug wrong-profile posts (personal vs Page). */
+async function logPostingIdentity(page) {
+  const info = await page.evaluate(() => {
+    const body = document.body?.innerText || '';
+    const m =
+      body.match(/Posting as[^\n\r]{1,120}/i) ||
+      body.match(/Post as[^\n\r]{1,120}/i);
+    return m ? m[0].trim() : '';
+  });
+  if (info) logger.info(`ℹ️ ${info}`);
+  else logger.info('ℹ️ Could not read “Posting as …” from composer (check screenshots).');
+}
+
+/**
+ * After clicking Post, confirm the article title appears on the Page timeline.
+ * Without this, logs can say “success” even if Meta rejected or posted elsewhere.
+ */
+async function verifyArticleOnPageTimeline(page, pageUrl, article) {
+  const raw = (article.title || '').trim();
+  if (raw.length < 10) return true;
+  const snippet = raw.substring(0, Math.min(40, raw.length)).toLowerCase();
+
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {});
+    await delay(4000, 6000);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await delay(800, 1500);
+
+    const found = await page.evaluate((snip) => {
+      return (document.body?.innerText || '').toLowerCase().includes(snip);
+    }, snippet);
+
+    if (found) {
+      logger.info(`✅ Verified article title on Page timeline (attempt ${attempt})`);
+      return true;
+    }
+
+    const errHint = await page.evaluate(() => {
+      const t = (document.body?.innerText || '').toLowerCase();
+      if (t.includes("couldn't post") || t.includes("could not post")) return 'Meta error toast';
+      if (t.includes('try again')) return 'Try again';
+      return '';
+    });
+    if (errHint) logger.warn(`⚠️ Possible publish error on page: ${errHint}`);
+
+    logger.warn(`⚠️ Title not visible on Page yet (attempt ${attempt}/5)…`);
+    await delay(5000, 7000);
+  }
+  return false;
+}
+
 /** Click Post / Share / composer submit (waits until enabled). */
 async function clickWwwPostSubmit(page, maxWaitMs) {
   const start = Date.now();
@@ -306,6 +357,7 @@ async function postViaWwwFacebook(article, articleIndex) {
       }
     }
     await screenshot(page, `${articleIndex}-3-composer-open`);
+    await logPostingIdentity(page);
 
     // ── Step 4: Type content (avoid long waitForSelector hangs on www) ──
     const content = buildPostContent(article);
@@ -331,11 +383,22 @@ async function postViaWwwFacebook(article, articleIndex) {
     }
 
     logger.info('✅ Clicked Post button');
-    await delay(10000, 15000);
-    await screenshot(page, `${articleIndex}-5-published`);
+    await delay(8000, 12000);
+    await screenshot(page, `${articleIndex}-5-after-post-click`);
 
+    const verified = await verifyArticleOnPageTimeline(page, pageUrl, article);
+    if (!verified) {
+      await screenshot(page, `${articleIndex}-ERR-not-on-timeline`);
+      throw new Error(
+        'Post was clicked but the article did not appear on the Page timeline. ' +
+        'Common causes: posting as personal profile (see “Posting as …” in composer), Meta blocked silently, ' +
+        'or wrong Page URL. Re-run setup.js while ensuring you open Dubai5 Page and “Post as Page”.'
+      );
+    }
+
+    await screenshot(page, `${articleIndex}-6-published-verified`);
     await saveCookies(page, 'facebook');
-    logger.info(`🎉 Facebook post published! Article ${articleIndex + 1}`);
+    logger.info(`🎉 Facebook post published and verified on Page! Article ${articleIndex + 1}`);
     await markPosted(articleIndex, 'facebook', true);
     return true;
 
