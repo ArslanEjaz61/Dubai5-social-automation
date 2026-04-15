@@ -120,118 +120,121 @@ async function loginToFacebook(page) {
 }
 
 /**
- * Meta Suite composer often lives in an iframe; the first [role=textbox] on the page can be search.
- * Prefer a large, visible contenteditable / textbox in composer (e.g. “Text” field).
+ * Collect editors inside open shadow roots (Meta Suite often hides the “Text” field there).
  */
-async function findComposerTextBox(page) {
-  const scoreNode = async (frame, el) => {
-    try {
-      const vis = await el.isVisible().catch(() => false);
-      if (!vis) return -1;
-      const box = await el.boundingBox();
-      if (!box || box.width < 100 || box.height < 36) return -1;
-      const meta = await frame.evaluate(
-        (node) => {
-          const lab = (node.getAttribute('aria-label') || '').toLowerCase();
-          const ph = (node.getAttribute('placeholder') || '').toLowerCase();
-          const role = node.getAttribute('role') || '';
-          let score = 0;
-          if (lab.includes('text') && !lab.includes('search')) score += 40;
-          if (lab.includes('post') || lab.includes('write')) score += 25;
-          if (ph.includes('write') || ph.includes('text')) score += 20;
-          if (role === 'textbox') score += 15;
-          if (node.isContentEditable) score += 10;
-          if (node.tagName === 'TEXTAREA') score += 8;
-          if (lab.includes('search')) score -= 100;
-          const r = node.getBoundingClientRect();
-          score += Math.min((r.width * r.height) / 8000, 25);
-          return score;
-        },
-        el
-      ).catch(() => -1);
-      return meta;
-    } catch (e) {
-      return -1;
-    }
-  };
-
-  const tryFrame = async (frame) => {
-    const sels = [
-      'div[role="textbox"][contenteditable="true"]',
-      '[role="textbox"][contenteditable="true"]',
-      'div[contenteditable="true"][spellcheck="true"]',
-      'div[data-lexical-editor="true"]',
-      'textarea:not([readonly]):not([disabled])',
-      '[role="textbox"]',
-      'div[contenteditable="true"]',
-    ];
-    let best = null;
-    let bestScore = -Infinity;
-    for (const sel of sels) {
-      const nodes = await frame.$$(sel).catch(() => []);
-      for (const node of nodes) {
-        const s = await scoreNode(frame, node);
-        if (s > bestScore) {
-          bestScore = s;
-          best = node;
-        }
-      }
-    }
-    return best != null && bestScore >= 5 ? best : null;
-  };
-
-  let el = await tryFrame(page.mainFrame());
-  if (el) return el;
-  for (const frame of page.frames()) {
-    if (frame === page.mainFrame()) continue;
-    if (frame.url() === 'about:blank') continue;
-    el = await tryFrame(frame);
-    if (el) return el;
+function fillComposerDomSnippet(text) {
+  function collectEditable(root, arr) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[contenteditable="true"]').forEach((n) => arr.push(n));
+    root.querySelectorAll('textarea:not([readonly]):not([disabled])').forEach((n) => arr.push(n));
+    root.querySelectorAll('[role="textbox"]').forEach((n) => arr.push(n));
+    root.querySelectorAll('*').forEach((el) => {
+      try {
+        if (el.shadowRoot) collectEditable(el.shadowRoot, arr);
+      } catch (e) { /* cross-origin shadow */ }
+    });
   }
-  return null;
-}
 
-async function waitForComposerTextBox(page, maxWaitMs = 90000) {
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    const el = await findComposerTextBox(page);
-    if (el) return el;
-    await delay(1500, 2500);
+  const nodes = [];
+  collectEditable(document, nodes);
+  const uniq = [...new Set(nodes)];
+
+  function score(node) {
+    const r = node.getBoundingClientRect();
+    if (r.width < 72 || r.height < 24) return -999;
+    if (r.bottom < 0 || r.top > (typeof innerHeight !== 'undefined' ? innerHeight : 9999)) return -999;
+    const lab = (node.getAttribute('aria-label') || '').toLowerCase();
+    const ph = (node.getAttribute('placeholder') || '').toLowerCase();
+    if (lab.includes('search')) return -999;
+    let s = 0;
+    if (lab.includes('text') && !lab.includes('search')) s += 48;
+    if (lab.includes('post') || lab.includes('write')) s += 22;
+    if (ph.includes('write') || ph.includes('text') || ph.includes('tell')) s += 18;
+    if (node.isContentEditable) s += 14;
+    if (node.getAttribute('role') === 'textbox') s += 10;
+    if (node.tagName === 'TEXTAREA') s += 8;
+    s += Math.min((r.width * r.height) / 10000, 24);
+    return s;
   }
-  return null;
-}
 
-/** Paste long text on the given editor node (works when editor is inside an iframe). */
-async function typeIntoFacebookEditor(editorHandle, text) {
-  if (text.length > 80) {
-    await editorHandle.evaluate((node, t) => {
-      node.focus();
-      if (node.isContentEditable || node.getAttribute('role') === 'textbox') {
-        document.execCommand('insertText', false, t);
-      }
-    }, text);
+  let best = null;
+  let bestScore = -Infinity;
+  for (const n of uniq) {
+    const sc = score(n);
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = n;
+    }
+  }
+  if (!best || bestScore < 3) return false;
+
+  best.scrollIntoView({ block: 'center', inline: 'nearest' });
+  best.focus();
+  try {
+    best.click();
+  } catch (e) { /* ignore */ }
+
+  const t = text;
+  if (best.tagName === 'TEXTAREA' || best.tagName === 'INPUT') {
+    best.value = t;
+    best.dispatchEvent(new InputEvent('input', { bubbles: true, data: t, inputType: 'insertText' }));
+  } else if (best.isContentEditable || best.getAttribute('role') === 'textbox') {
+    document.execCommand('insertText', false, t);
   } else {
-    await editorHandle.type(text, { delay: 18 });
+    return false;
   }
+  return true;
+}
+
+/** Try filling composer in every frame until one succeeds (handles iframes + shadow DOM). */
+async function fillComposerViaDom(page, text, maxWaitMs = 90000) {
+  const start = Date.now();
+  await page.waitForSelector('body', { timeout: 8000 }).catch(() => {});
+  await page.waitForSelector('iframe', { timeout: 25000 }).catch(() => {});
+
+  while (Date.now() - start < maxWaitMs) {
+    const frames = [
+      page.mainFrame(),
+      ...page.frames().filter((f) => f !== page.mainFrame() && f.url() && f.url() !== 'about:blank')
+    ];
+    for (const frame of frames) {
+      const ok = await frame.evaluate(fillComposerDomSnippet, text).catch(() => false);
+      if (ok) return true;
+    }
+    await delay(1500, 2200);
+  }
+  return false;
+}
+
+function clickPublishDomSnippet() {
+  function collectButtons(root, arr) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('div[role="button"], button').forEach((b) => arr.push(b));
+    root.querySelectorAll('*').forEach((el) => {
+      try {
+        if (el.shadowRoot) collectButtons(el.shadowRoot, arr);
+      } catch (e) { /* ignore */ }
+    });
+  }
+  const btns = [];
+  collectButtons(document, btns);
+  const pub = btns.find((b) => {
+    const t = (b.textContent || '').trim().toLowerCase();
+    if (t !== 'publish') return false;
+    if (b.getAttribute('aria-disabled') === 'true') return false;
+    if (b.disabled) return false;
+    return true;
+  });
+  if (pub) {
+    pub.click();
+    return true;
+  }
+  return false;
 }
 
 async function clickPublishWhenReady(page, maxWaitMs = 90000) {
   const tryClick = async (frame) => {
-    return frame.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
-      const pub = btns.find((b) => {
-        const t = (b.textContent || '').trim().toLowerCase();
-        if (t !== 'publish') return false;
-        if (b.getAttribute('aria-disabled') === 'true') return false;
-        if (b.disabled) return false;
-        return true;
-      });
-      if (pub) {
-        pub.click();
-        return true;
-      }
-      return false;
-    }).catch(() => false);
+    return frame.evaluate(clickPublishDomSnippet).catch(() => false);
   };
 
   const start = Date.now();
@@ -431,17 +434,13 @@ async function postToFacebook(article, articleIndex) {
       }
     }
 
-    // ── Step 2: Type content ────────────────────────────────────
-    logger.info('⌨️ Finding Meta Suite text editor (may be inside iframe)…');
+    // ── Step 2: Type content (iframes + open shadow roots) ──────
+    logger.info('⌨️ Filling Meta Suite composer (iframe / shadow DOM)…');
     const content = buildPostContent(article);
 
-    const textArea = await waitForComposerTextBox(page, 90000);
-    if (!textArea) throw new Error('Could not find Facebook Suite text editor');
+    const filled = await fillComposerViaDom(page, content, 95000);
+    if (!filled) throw new Error('Could not find Facebook Suite text editor');
 
-    await textArea.evaluate((n) => n.scrollIntoView({ block: 'center', inline: 'nearest' }));
-    await textArea.click({ delay: 50 });
-    await delay(400, 800);
-    await typeIntoFacebookEditor(textArea, content);
     logger.info(`✅ Entered ${content.length} chars in composer`);
     await delay(2500, 4000);
     await screenshot(page, `${articleIndex}-3-content-ready`);
