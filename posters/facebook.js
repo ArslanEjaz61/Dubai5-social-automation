@@ -150,30 +150,36 @@ async function postToFacebook(article, articleIndex) {
     // ── Meta Suite can show overlays, Profile Selection, or Get Started walls ──
     try {
       // 1. Check for Meta Business Tools "Log in with Facebook" wall (fb-composer-fail.png)
-      const loginWallBtn = await page.evaluateHandle(() => {
+      const loginWallInfo = await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('button, [role="button"], a'));
-        return btns.find(b => b.textContent.trim().toLowerCase() === 'log in with facebook');
+        const btn = btns.find(b => b.textContent.trim().toLowerCase() === 'log in with facebook');
+        if (!btn) return null;
+        const r = btn.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       });
 
-      if (loginWallBtn && await loginWallBtn.asElement()) {
-        logger.info('🖱️ Handled Meta "Log in with Facebook" landing wall');
-        await loginWallBtn.click();
-        await delay(6000, 10000);
+      if (loginWallInfo) {
+        logger.info(`🖱️ Handled Meta "Log in with Facebook" wall (Force Click at ${Math.round(loginWallInfo.x)},${Math.round(loginWallInfo.y)})`);
+        await page.mouse.click(loginWallInfo.x, loginWallInfo.y);
+        await delay(8000, 12000); // Suite login is slow
         await screenshot(page, `${articleIndex}-1b-after-suite-login`);
       }
 
       // 2. Check for the "Continue" profile wall (as seen in fb-login-fail.png)
-      const profileContinueBtn = await page.evaluateHandle(() => {
+      const profileWallInfo = await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('div[role="button"], button, a'));
-        return btns.find(b => {
+        const btn = btns.find(b => {
           const t = b.textContent.trim().toLowerCase();
           return t === 'continue' || t.includes('continue as');
         });
+        if (!btn) return null;
+        const r = btn.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       });
       
-      if (profileContinueBtn && await profileContinueBtn.asElement()) {
-        logger.info('🖱️ Handled Facebook Profile Selection Wall (Clicked Continue)');
-        await profileContinueBtn.click();
+      if (profileWallInfo) {
+        logger.info(`🖱️ Handled Facebook Profile Selection Wall (Force Click at ${Math.round(profileWallInfo.x)},${Math.round(profileWallInfo.y)})`);
+        await page.mouse.click(profileWallInfo.x, profileWallInfo.y);
         await delay(6000, 10000);
       }
 
