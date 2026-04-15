@@ -122,8 +122,27 @@ async function postToFacebook(article, articleIndex) {
     logger.info('✅ Logged in to Meta Business Suite');
     await screenshot(page, `${articleIndex}-1-suite-loaded`);
 
-    // ── Meta Suite can show overlays/popups ─────────────────────
+    // ── Meta Suite can show overlays or Profile Selection walls ────────
     try {
+      // Check for the "Continue" profile wall (as seen in fb-failure.png)
+      const profileWall = await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+        const continueBtn = btns.find(b => {
+          const t = b.textContent.trim().toLowerCase();
+          return t === 'continue' || t.includes('continue as');
+        });
+        if (continueBtn) {
+          continueBtn.click();
+          return true;
+        }
+        return false;
+      });
+      
+      if (profileWall) {
+        logger.info('🖱️ Handled Facebook Profile Selection Wall (Clicked Continue)');
+        await delay(3000, 5000);
+      }
+
       const closePopup = await page.$('[aria-label="Close"]');
       if (closePopup) { await closePopup.click(); await delay(1000, 1500); }
     } catch (e) {}
