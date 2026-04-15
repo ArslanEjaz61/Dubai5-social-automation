@@ -100,6 +100,22 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/** www timeline URL for posting — NOT business.facebook.com (different product). */
+function getWwwFacebookPageUrl() {
+  const wwwExplicit = (process.env.FACEBOOK_WWW_PAGE_URL || '').trim();
+  if (wwwExplicit && /^https?:\/\/(www\.|m\.)?facebook\.com/i.test(wwwExplicit)) {
+    return wwwExplicit;
+  }
+  const pageUrl = (process.env.FACEBOOK_PAGE_URL || '').trim();
+  if (pageUrl && !/business\.facebook\.com/i.test(pageUrl)) {
+    if (/^https?:\/\/(www\.|m\.)?facebook\.com/i.test(pageUrl)) return pageUrl;
+  }
+  if (pageUrl && /business\.facebook\.com/i.test(pageUrl)) {
+    logger.info('ℹ️ FACEBOOK_PAGE_URL is Business Suite — using www Page timeline instead.');
+  }
+  return `https://www.facebook.com/profile.php?id=${FB_PAGE_ID}`;
+}
+
 async function postViaWwwFacebook(article, articleIndex) {
   logger.info(`\n📘 Facebook (www + cookies) → Article ${articleIndex + 1}: "${(article.title || '').substring(0, 50)}..."`);
 
@@ -124,8 +140,8 @@ async function postViaWwwFacebook(article, articleIndex) {
     await screenshot(page, `${articleIndex}-1-logged-in`);
 
     // ── Step 2: Navigate to Facebook Page ────────────────────────
-    const pageUrl = process.env.FACEBOOK_PAGE_URL || `https://www.facebook.com/profile.php?id=${FB_PAGE_ID}`;
-    logger.info(`🔗 Opening Facebook Page: ${pageUrl.substring(0, 60)}…`);
+    const pageUrl = getWwwFacebookPageUrl();
+    logger.info(`🔗 Opening Facebook Page (www): ${pageUrl.substring(0, 72)}…`);
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(4000, 6000);
     await screenshot(page, `${articleIndex}-2-page-loaded`);
