@@ -150,39 +150,31 @@ async function postToFacebook(article, articleIndex) {
     // ── Meta Suite can show overlays, Profile Selection, or Get Started walls ──
     try {
       // 1. Check for Meta Business Tools "Log in with Facebook" wall (fb-composer-fail.png)
-      const getStartedWall = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
-        const loginBtn = btns.find(b => b.textContent.trim().toLowerCase() === 'log in with facebook');
-        if (loginBtn) {
-          loginBtn.click();
-          return true;
-        }
-        return false;
+      const loginWallBtn = await page.evaluateHandle(() => {
+        const btns = Array.from(document.querySelectorAll('button, [role="button"], a'));
+        return btns.find(b => b.textContent.trim().toLowerCase() === 'log in with facebook');
       });
 
-      if (getStartedWall) {
+      if (loginWallBtn && await loginWallBtn.asElement()) {
         logger.info('🖱️ Handled Meta "Log in with Facebook" landing wall');
-        await delay(5000, 8000);
+        await loginWallBtn.click();
+        await delay(6000, 10000);
         await screenshot(page, `${articleIndex}-1b-after-suite-login`);
       }
 
-      // 2. Check for the "Continue" profile wall (as seen in fb-failure.png)
-      const profileWall = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
-        const continueBtn = btns.find(b => {
+      // 2. Check for the "Continue" profile wall (as seen in fb-login-fail.png)
+      const profileContinueBtn = await page.evaluateHandle(() => {
+        const btns = Array.from(document.querySelectorAll('div[role="button"], button, a'));
+        return btns.find(b => {
           const t = b.textContent.trim().toLowerCase();
           return t === 'continue' || t.includes('continue as');
         });
-        if (continueBtn) {
-          continueBtn.click();
-          return true;
-        }
-        return false;
       });
       
-      if (profileWall) {
+      if (profileContinueBtn && await profileContinueBtn.asElement()) {
         logger.info('🖱️ Handled Facebook Profile Selection Wall (Clicked Continue)');
-        await delay(5000, 8000);
+        await profileContinueBtn.click();
+        await delay(6000, 10000);
       }
 
       const closePopup = await page.$('[aria-label="Close"]');
