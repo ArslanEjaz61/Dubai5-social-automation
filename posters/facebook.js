@@ -132,8 +132,9 @@ async function isWwwFacebookQuickLogin(page) {
 
 /**
  * If Page load is guest or we hit Continue gate, reload home, click Continue, then reopen target URL.
+ * `recoveryState` ensures we only do the heavy home→Continue→Page path once per run (avoids long loops).
  */
-async function ensureWwwFacebookAuthenticatedForTarget(page, targetPageUrl) {
+async function ensureWwwFacebookAuthenticatedForTarget(page, targetPageUrl, recoveryState) {
   await ensureWwwFacebookSessionReady(page, 2);
   const bad =
     (await isWwwFacebookHeaderLoginVisible(page)) ||
@@ -141,14 +142,26 @@ async function ensureWwwFacebookAuthenticatedForTarget(page, targetPageUrl) {
     (await isWwwFacebookGuestBanner(page));
   if (!bad) return;
 
+  if (recoveryState.used) {
+    logger.warn('⚠️ Facebook still shows login/guest after one recovery — not re-looping.');
+    return;
+  }
+  recoveryState.used = true;
+
   logger.warn('⚠️ Facebook session incomplete (login / Continue gate) — recovering via facebook.com…');
   await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
   await delay(4000, 6000);
   await ensureWwwFacebookSessionReady(page, 4);
+  try {
+    await saveCookies(page, 'facebook');
+  } catch (e) { /* ignore */ }
   logger.info(`🔗 Re-opening Page: ${targetPageUrl.substring(0, 72)}…`);
   await page.goto(targetPageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
   await delay(5000, 8000);
   await ensureWwwFacebookSessionReady(page, 3);
+  try {
+    await saveCookies(page, 'facebook');
+  } catch (e) { /* ignore */ }
 }
 
 /**
@@ -557,25 +570,35 @@ async function postViaWwwFacebook(article, articleIndex) {
       );
     }
     logger.info('✅ Facebook session valid (cookies working)');
+    if (
+      !(await isWwwFacebookQuickLogin(page)) &&
+      !(await isWwwFacebookHeaderLoginVisible(page)) &&
+      !(await isWwwFacebookGuestBanner(page))
+    ) {
+      try {
+        await saveCookies(page, 'facebook');
+      } catch (e) { /* ignore */ }
+    }
     await screenshot(page, `${articleIndex}-1-logged-in`);
 
     // ── Step 2: Navigate to Facebook Page ────────────────────────
+    const recoveryState = { used: false };
     const pageUrl = getWwwFacebookPageUrl();
     let timelineVerifyUrl = pageUrl;
     logger.info(`🔗 Opening Facebook Page (www): ${pageUrl.substring(0, 72)}…`);
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(5000, 8000);
-    await ensureWwwFacebookAuthenticatedForTarget(page, pageUrl);
+    await ensureWwwFacebookAuthenticatedForTarget(page, pageUrl, recoveryState);
     if (await isWwwFacebookErrorPage(page)) {
       logger.warn('⚠️ Page URL returned an error view — trying numeric /{id}/ …');
       const alt = `https://www.facebook.com/${FB_PAGE_ID}`;
       timelineVerifyUrl = alt;
       await page.goto(alt, { waitUntil: 'networkidle2', timeout: 60000 });
       await delay(4000, 6000);
-      await ensureWwwFacebookAuthenticatedForTarget(page, alt);
+      await ensureWwwFacebookAuthenticatedForTarget(page, alt, recoveryState);
     }
     await dismissWwwBlockingOverlays(page);
-    await ensureWwwFacebookAuthenticatedForTarget(page, timelineVerifyUrl);
+    await ensureWwwFacebookAuthenticatedForTarget(page, timelineVerifyUrl, recoveryState);
     await page.evaluate(() => window.scrollTo(0, 0));
     await delay(800, 1200);
     await screenshot(page, `${articleIndex}-2-page-loaded`);
@@ -590,7 +613,7 @@ async function postViaWwwFacebook(article, articleIndex) {
         timelineVerifyUrl = alt;
         await page.goto(alt, { waitUntil: 'networkidle2', timeout: 60000 });
         await delay(5000, 7000);
-        await ensureWwwFacebookAuthenticatedForTarget(page, alt);
+        await ensureWwwFacebookAuthenticatedForTarget(page, alt, recoveryState);
         await openWwwPageComposer(page);
       }
     }
@@ -610,6 +633,18 @@ async function postViaWwwFacebook(article, articleIndex) {
 
     await screenshot(page, `${articleIndex}-3-composer-open`);
     await logPostingIdentity(page);
+
+    if (
+      (await isWwwFacebookHeaderLoginVisible(page)) ||
+      (await isWwwFacebookGuestBanner(page)) ||
+      (await isWwwFacebookQuickLogin(page))
+    ) {
+      throw new Error(
+        'Facebook is still logged out or on the Continue gate on this Page. ' +
+        'Re-save cookies: run `node setup.js` locally (full feed, not only login screen), copy sessions/facebook.json to the server. ' +
+        'Or set FACEBOOK_PAGE_ID + FACEBOOK_PAGE_ACCESS_TOKEN in .env to use Graph API on the server.'
+      );
+    }
 
     // ── Step 4: Type content (avoid long waitForSelector hangs on www) ──
     const content = buildPostContent(article);
