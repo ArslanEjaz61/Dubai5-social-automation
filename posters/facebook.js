@@ -100,6 +100,61 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/** Click Post / Share / composer submit (waits until enabled). */
+async function clickWwwPostSubmit(page, maxWaitMs) {
+  const start = Date.now();
+  let nextClicked = false;
+  while (Date.now() - start < maxWaitMs) {
+    const clicked = await page.evaluate(() => {
+      const tryClick = (el) => {
+        if (!el || el.getAttribute?.('aria-disabled') === 'true' || el.disabled) return false;
+        el.click();
+        return true;
+      };
+      const byTest = document.querySelector(
+        '[data-testid="composer-post-button"],' +
+          '[data-testid="post-creation-submit-button"],' +
+          '[aria-label="Post"][role="button"],' +
+          '[aria-label="Share to News Feed"][role="button"],' +
+          '[aria-label="Share"][role="button"]'
+      );
+      if (byTest && tryClick(byTest)) return 'testid';
+
+      const btns = Array.from(document.querySelectorAll('[role="button"], button'));
+      for (const b of btns) {
+        const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!/^(Post|Share|Publish)$/i.test(t)) continue;
+        if (b.getAttribute('aria-disabled') === 'true') continue;
+        if (b.offsetParent === null) continue;
+        b.click();
+        return 'text';
+      }
+      return '';
+    });
+    if (clicked) return true;
+
+    // Some flows show "Next" before the final Post
+    if (!nextClicked && Date.now() - start > 12000) {
+      const nextOk = await page.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('[role="button"], button'));
+        const n = btns.find(b => /^Next$/i.test((b.textContent || '').trim()));
+        if (n && n.getAttribute('aria-disabled') !== 'true') {
+          n.click();
+          return true;
+        }
+        return false;
+      });
+      if (nextOk) {
+        nextClicked = true;
+        await delay(2000, 3500);
+      }
+    }
+
+    await delay(500, 900);
+  }
+  return false;
+}
+
 /**
  * Find a visible composer on www.facebook.com and insert text (no fragile waitForSelector).
  */
@@ -236,25 +291,14 @@ async function postViaWwwFacebook(article, articleIndex) {
     await delay(2000, 3000);
     await screenshot(page, `${articleIndex}-4-content-ready`);
 
-    // ── Step 5: Click Post/Publish ───────────────────────────────
-    logger.info('🚀 Looking for Post button…');
-    await delay(2000, 3000);
+    // ── Step 5: Click Post / Share (composer enables button after text) ──
+    logger.info('🚀 Looking for Post / Share button…');
+    await delay(3000, 5000);
 
-    const posted = await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('[role="button"], button'));
-      // Facebook www uses "Post" not "Publish"
-      const postBtn = btns.find(b => {
-        const t = (b.textContent || '').trim();
-        if (b.getAttribute('aria-disabled') === 'true') return false;
-        return /^Post$/i.test(t) || /^Publish$/i.test(t) || /^Share$/i.test(t);
-      });
-      if (postBtn) { postBtn.click(); return true; }
-      return false;
-    });
-
+    const posted = await clickWwwPostSubmit(page, 60000);
     if (!posted) {
       await screenshot(page, `${articleIndex}-ERR-no-post-btn`);
-      throw new Error('Could not find Post button');
+      throw new Error('Could not find Post/Share button');
     }
 
     logger.info('✅ Clicked Post button');
