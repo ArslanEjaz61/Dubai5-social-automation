@@ -114,11 +114,40 @@ async function clickWwwPostSubmit(page, maxWaitMs) {
       const byTest = document.querySelector(
         '[data-testid="composer-post-button"],' +
           '[data-testid="post-creation-submit-button"],' +
+          '[data-testid="composer-submit-button"],' +
           '[aria-label="Post"][role="button"],' +
           '[aria-label="Share to News Feed"][role="button"],' +
           '[aria-label="Share"][role="button"]'
       );
       if (byTest && tryClick(byTest)) return 'testid';
+
+      for (const b of document.querySelectorAll('[role="button"][aria-label]')) {
+        const lab = (b.getAttribute('aria-label') || '').toLowerCase();
+        if (
+          (lab.includes('post') || lab.includes('share')) &&
+          !lab.includes('photo') &&
+          !lab.includes('comment')
+        ) {
+          if (tryClick(b)) return 'aria-label';
+        }
+      }
+
+      const spans = Array.from(document.querySelectorAll('span'));
+      for (const s of spans) {
+        const t = (s.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!/^(Post|Share|Publish)$/i.test(t)) continue;
+        let p = s;
+        for (let i = 0; i < 8 && p; i++) {
+          if (p.getAttribute?.('role') === 'button') {
+            if (p.getAttribute('aria-disabled') !== 'true' && p.offsetParent !== null) {
+              p.click();
+              return 'span-parent';
+            }
+            break;
+          }
+          p = p.parentElement;
+        }
+      }
 
       const btns = Array.from(document.querySelectorAll('[role="button"], button'));
       for (const b of btns) {
@@ -295,7 +324,7 @@ async function postViaWwwFacebook(article, articleIndex) {
     logger.info('🚀 Looking for Post / Share button…');
     await delay(3000, 5000);
 
-    const posted = await clickWwwPostSubmit(page, 60000);
+    const posted = await clickWwwPostSubmit(page, 120000);
     if (!posted) {
       await screenshot(page, `${articleIndex}-ERR-no-post-btn`);
       throw new Error('Could not find Post/Share button');
