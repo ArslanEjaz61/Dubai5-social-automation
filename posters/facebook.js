@@ -125,21 +125,26 @@ async function loginViaMbasic(page) {
     throw new Error('mbasic login form not found and not logged in');
   }
 
-  await emailField.click();
-  await emailField.type(email, { delay: 25 });
+  await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el) { el.value = ''; el.focus(); }
+  }, emailField ? '#m_login_email' : 'input[name="email"]');
+  await page.keyboard.type(email, { delay: 25 });
   await delay(300, 600);
 
-  const passField = await waitForSafe(page, 'input[name="pass"]', 5000);
-  if (!passField) throw new Error('mbasic password field not found');
-  await passField.click();
-  await passField.type(password, { delay: 25 });
+  await page.evaluate(() => {
+    const el = document.querySelector('input[name="pass"]');
+    if (el) { el.value = ''; el.focus(); }
+  });
+  await page.keyboard.type(password, { delay: 25 });
   await delay(300, 600);
 
-  const loginBtn = await page.$('input[name="login"]')
-    || await page.$('button[name="login"]')
-    || await page.$('input[type="submit"]');
-  if (!loginBtn) throw new Error('mbasic login button not found');
-  await loginBtn.click();
+  await page.evaluate(() => {
+    const btn = document.querySelector('input[name="login"]')
+      || document.querySelector('button[name="login"]')
+      || document.querySelector('input[type="submit"]');
+    if (btn) btn.click();
+  });
   await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
   await delay(2000, 3000);
 
