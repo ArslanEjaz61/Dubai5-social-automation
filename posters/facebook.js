@@ -100,6 +100,89 @@ async function postToFacebookGraph(article, articleIndex) {
 
 const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
+/**
+ * Cookie sessions often land on “Quick login” with a Continue button — must click before feed/Page UI works.
+ */
+async function ensureWwwFacebookSessionReady(page) {
+  for (let round = 0; round < 8; round++) {
+    const clicked = await page.evaluate(() => {
+      const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      const tryClick = (el) => {
+        if (!el) return false;
+        el.click();
+        return true;
+      };
+      const direct = Array.from(
+        document.querySelectorAll('[role="button"], button, a, div[role="button"], span[role="button"]')
+      );
+      for (const el of direct) {
+        const t = norm(el.textContent);
+        if (/^continue$/i.test(t)) {
+          if (tryClick(el)) return 'continue';
+        }
+      }
+      for (const span of document.querySelectorAll('span')) {
+        if (!/^continue$/i.test(norm(span.textContent))) continue;
+        const btn = span.closest('[role="button"], button, a, div[role="button"]');
+        if (btn && tryClick(btn)) return 'continue-span';
+      }
+      return '';
+    });
+    if (clicked) {
+      logger.info('🖱️ Confirmed Facebook session (Continue on account picker)');
+      await delay(3500, 6000);
+      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 }).catch(() => {});
+      await delay(2000, 3500);
+      continue;
+    }
+    break;
+  }
+}
+
+/** Close “See more from …” login nags and similar overlays so the Page composer is reachable. */
+async function dismissWwwBlockingOverlays(page) {
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Escape');
+    await delay(300, 600);
+    const closed = await page.evaluate(() => {
+      const tryClick = (el) => {
+        if (!el) return false;
+        el.click();
+        return true;
+      };
+      const closeSelectors = [
+        '[aria-label="Close"]',
+        '[aria-label="Close dialog"]',
+        '[aria-label="Close dialogue"]',
+        '[data-testid="close"]'
+      ];
+      for (const sel of closeSelectors) {
+        const el = document.querySelector(sel);
+        if (el && tryClick(el)) return true;
+      }
+      const inDialog = document.querySelector('[role="dialog"] [aria-label*="Close"]');
+      if (inDialog && tryClick(inDialog)) return true;
+      const buttons = Array.from(document.querySelectorAll('[role="button"], button'));
+      for (const b of buttons) {
+        const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/^(not now|no thanks|skip)$/i.test(t)) {
+          b.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    if (closed) await delay(600, 1200);
+  }
+}
+
+async function isWwwFacebookErrorPage(page) {
+  return page.evaluate(() => {
+    const t = (document.body?.innerText || '').toLowerCase();
+    return t.includes("this page isn't available") || t.includes('page not found');
+  });
+}
+
 /** True if any frame has a usable composer field (often inside an iframe). */
 async function hasWwwComposerTextbox(page) {
   for (const frame of page.frames()) {
@@ -187,23 +270,6 @@ async function openWwwPageComposer(page) {
     await delay(1200, 2000);
   }
   return false;
-}
-
-/** Some sessions only expose the composer after sk=create (or equivalent). */
-async function openWwwPageComposerViaSkCreate(page, pageId) {
-  const u = `https://www.facebook.com/profile.php?id=${encodeURIComponent(pageId)}&sk=create`;
-  try {
-    await page.goto(u, { waitUntil: 'networkidle2', timeout: 60000 });
-    await delay(4000, 6000);
-    if (await hasWwwComposerTextbox(page)) {
-      logger.info('🖱️ Composer visible after sk=create URL');
-      return true;
-    }
-    await openWwwPageComposer(page);
-    return hasWwwComposerTextbox(page);
-  } catch (e) {
-    return false;
-  }
 }
 
 /** Help debug wrong-profile posts (personal vs Page). */
@@ -432,6 +498,7 @@ async function postViaWwwFacebook(article, articleIndex) {
     logger.info('🔗 Navigating to facebook.com…');
     await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(3000, 5000);
+    await ensureWwwFacebookSessionReady(page);
 
     const url = page.url();
     if (url.includes('/login') || url.includes('login.php')) {
@@ -448,6 +515,14 @@ async function postViaWwwFacebook(article, articleIndex) {
     logger.info(`🔗 Opening Facebook Page (www): ${pageUrl.substring(0, 72)}…`);
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(5000, 8000);
+    await ensureWwwFacebookSessionReady(page);
+    if (await isWwwFacebookErrorPage(page)) {
+      logger.warn('⚠️ Page URL returned an error view — trying numeric /{id}/ …');
+      await page.goto(`https://www.facebook.com/${FB_PAGE_ID}`, { waitUntil: 'networkidle2', timeout: 60000 });
+      await delay(4000, 6000);
+      await ensureWwwFacebookSessionReady(page);
+    }
+    await dismissWwwBlockingOverlays(page);
     await page.evaluate(() => window.scrollTo(0, 0));
     await delay(800, 1200);
     await screenshot(page, `${articleIndex}-2-page-loaded`);
@@ -467,11 +542,13 @@ async function postViaWwwFacebook(article, articleIndex) {
     await delay(3000, 5000);
 
     if (!(await hasWwwComposerTextbox(page))) {
-      logger.warn('⚠️ No composer field yet — trying profile.php?…&sk=create…');
-      await openWwwPageComposerViaSkCreate(page, FB_PAGE_ID);
-      await delay(2000, 4000);
+      logger.warn('⚠️ No composer field yet — dismissing overlays and retrying composer…');
+      await dismissWwwBlockingOverlays(page);
+      await openWwwPageComposer(page);
+      await delay(3000, 5000);
     }
     if (!(await hasWwwComposerTextbox(page))) {
+      await page.evaluate(() => window.scrollTo(0, 0));
       await openWwwPageComposer(page);
       await delay(3000, 5000);
     }
