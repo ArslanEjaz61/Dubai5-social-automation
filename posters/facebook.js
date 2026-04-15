@@ -159,8 +159,11 @@ async function postToFacebook(article, articleIndex) {
       });
 
       if (loginWallInfo) {
-        logger.info(`🖱️ Handled Meta "Log in with Facebook" wall (Force Click at ${Math.round(loginWallInfo.x)},${Math.round(loginWallInfo.y)})`);
+        logger.info(`🖱️ Handled Meta "Log in with Facebook" wall (Force Click + Direct Nav)`);
         await page.mouse.click(loginWallInfo.x, loginWallInfo.y);
+        await delay(3000, 5000);
+        // Force navigate to composer as ultimate fallback
+        await page.goto('https://business.facebook.com/latest/composer', { waitUntil: 'networkidle2' });
         await delay(8000, 12000); // Suite login is slow
         await screenshot(page, `${articleIndex}-1b-after-suite-login`);
       }
@@ -192,21 +195,22 @@ async function postToFacebook(article, articleIndex) {
       logger.info(`🖼️ Uploading image (${article.localImagePath})...`);
       try {
         // Find "Add photo/video" button
-        const addBtn = await page.evaluateHandle(() => {
+        const addBtnHandle = await page.evaluateHandle(() => {
           return Array.from(document.querySelectorAll('div[role="button"], button')).find(el => {
             const t = (el.textContent || '').toLowerCase();
             return t.includes('add photo') || t.includes('add photo/video');
           });
         });
 
+        const addBtn = await addBtnHandle.asElement();
         if (addBtn) {
           const [fileChooser] = await Promise.all([
             page.waitForFileChooser({ timeout: 15000 }),
-            page.evaluate(el => el.click(), addBtn),
+            addBtn.click(),
           ]);
           await fileChooser.accept([article.localImagePath]);
           logger.info('✅ Image selected via file chooser');
-          await delay(6000, 10000); // Business Suite needs time to process media
+          await delay(8000, 12000); // Business Suite needs time to process media
           await screenshot(page, `${articleIndex}-2-image-attached`);
         } else {
           logger.warn('⚠️ Could not find "Add photo" button in Business Suite');
