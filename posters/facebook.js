@@ -32,7 +32,6 @@ async function waitForSafe(page, selector, timeout = 8000) {
   } catch (e) { return null; }
 }
 
-/** Build Facebook post content */
 function buildPostContent(article) {
   const { title, description, articleUrl } = article;
   let content = `🔮 ${title}\n\n`;
@@ -46,7 +45,7 @@ function buildPostContent(article) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  APPROACH 1 — Graph API (most reliable on any server)
+//  APPROACH 1 — Graph API (most reliable, if token set)
 // ════════════════════════════════════════════════════════════════════════════
 
 const GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v21.0';
@@ -58,17 +57,14 @@ function graphErrorMessage(err) {
 async function postToFacebookGraph(article, articleIndex) {
   const pageId = process.env.FACEBOOK_PAGE_ID;
   const token = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
-  const titlePreview = (article.title || '').substring(0, 50);
-  logger.info(`\n📘 Facebook (Graph API) → Article ${articleIndex + 1}: "${titlePreview}..."`);
+  logger.info(`\n📘 Facebook (Graph API) → Article ${articleIndex + 1}: "${(article.title || '').substring(0, 50)}..."`);
 
   const message = buildPostContent(article);
   const base = `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`;
 
   try {
     const imageUrl = article.imageUrl && String(article.imageUrl).trim();
-    const canPhoto = imageUrl && /^https?:\/\//i.test(imageUrl);
-
-    if (canPhoto) {
+    if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
       try {
         const { data } = await axios.post(`${base}/photos`, null, {
           params: { url: imageUrl, caption: message, access_token: token, published: true },
@@ -81,7 +77,6 @@ async function postToFacebookGraph(article, articleIndex) {
         logger.warn(`⚠️ FB Graph photo failed (${graphErrorMessage(photoErr)}), trying link post…`);
       }
     }
-
     const link = article.articleUrl || process.env.WEBSITE_URL || 'https://dubai5.space';
     const { data } = await axios.post(`${base}/feed`, null, {
       params: { message, link, access_token: token },
@@ -99,202 +94,156 @@ async function postToFacebookGraph(article, articleIndex) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  APPROACH 2 — mbasic.facebook.com (plain HTML, no React / Business Suite)
-//  Works on AWS / datacenter IPs where business.facebook.com blocks the UI.
+//  APPROACH 2 — www.facebook.com with saved cookies (like LinkedIn/Twitter)
+//  Requires: `node setup.js` → manual login once → cookies saved → bot reuses
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Login via mbasic, then immediately navigate to the Page in the same session.
- * Returns true if we land on the Page with a working session.
- */
-async function loginAndGoToPage(page, pageId) {
-  const email = process.env.FACEBOOK_EMAIL;
-  const password = process.env.FACEBOOK_PASSWORD;
-  if (!email || !password) throw new Error('FACEBOOK_EMAIL/PASSWORD not set in .env');
+const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
-  const pageUrl = `https://mbasic.facebook.com/${pageId}`;
-
-  // Go to the page URL directly — if not logged in, mbasic redirects to login with next=pageUrl
-  logger.info('🔐 Opening mbasic page (will login if needed)…');
-  await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-  await delay(1500, 2500);
-
-  // Check if we need to login
-  const needsLogin = page.url().includes('login') || !!(await page.$('#m_login_email'))
-    || !!(await page.$('input[name="email"]'));
-
-  if (!needsLogin) {
-    const bodyText = await page.evaluate(() => (document.body?.innerText || '').substring(0, 500));
-    if (!bodyText.includes('Log in to Facebook') && !bodyText.includes('Log In')) {
-      logger.info('✅ Already logged in — on Page');
-      await saveCookies(page, 'facebook');
-      return true;
-    }
-  }
-
-  logger.info('🔐 Filling login form on mbasic…');
-  await page.evaluate(() => {
-    const el = document.querySelector('#m_login_email') || document.querySelector('input[name="email"]');
-    if (el) { el.value = ''; el.focus(); }
-  });
-  await page.keyboard.type(email, { delay: 25 });
-  await delay(300, 600);
-
-  await page.evaluate(() => {
-    const el = document.querySelector('input[name="pass"]');
-    if (el) { el.value = ''; el.focus(); }
-  });
-  await page.keyboard.type(password, { delay: 25 });
-  await delay(300, 600);
-
-  await page.evaluate(() => {
-    const btn = document.querySelector('input[name="login"]')
-      || document.querySelector('button[name="login"]')
-      || document.querySelector('input[type="submit"]');
-    if (btn) btn.click();
-  });
-  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
-  await delay(2000, 3000);
-
-  const afterUrl = page.url();
-
-  if (afterUrl.includes('checkpoint')) {
-    await screenshot(page, 'mbasic-checkpoint');
-    throw new Error('Facebook checkpoint — verify identity at facebook.com first');
-  }
-
-  // "Save device" prompt
-  if (afterUrl.includes('save-device') || afterUrl.includes('login_save')) {
-    logger.info('📱 "Save device" prompt — skipping…');
-    await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll('a'));
-      const skip = links.find(a => /not now|skip|ok/i.test(a.textContent));
-      if (skip) skip.click();
-    });
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(() => {});
-    await delay(1500, 2500);
-  }
-
-  await saveCookies(page, 'facebook');
-  logger.info('✅ mbasic login successful!');
-
-  // After login, mbasic should redirect to next=pageUrl; if not, navigate explicitly
-  const currentUrl = page.url();
-  if (!currentUrl.includes(pageId)) {
-    logger.info('🔗 Navigating to Page after login…');
-    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-    await delay(2000, 3000);
-  }
-
-  const bodyText = await page.evaluate(() => (document.body?.innerText || '').substring(0, 500));
-  if (bodyText.includes('Log in to Facebook') || bodyText.includes('Log In')) {
-    throw new Error('mbasic: still on login page after successful login');
-  }
-
-  return true;
-}
-
-async function postViaMbasic(article, articleIndex) {
-  const pageId = process.env.FACEBOOK_ASSET_ID || '970837422790775';
-  const titlePreview = (article.title || '').substring(0, 50);
-  logger.info(`\n📘 Facebook (mbasic) → Article ${articleIndex + 1}: "${titlePreview}..."`);
+async function postViaWwwFacebook(article, articleIndex) {
+  logger.info(`\n📘 Facebook (www + cookies) → Article ${articleIndex + 1}: "${(article.title || '').substring(0, 50)}..."`);
 
   let browser, page;
   try {
     ({ browser, page } = await launchBrowser(true));
-    // ── Step 1+2: Login directly on the Page URL (same session, no redirect loss) ──
-    await loginAndGoToPage(page, pageId);
-    await screenshot(page, `${articleIndex}-1-mbasic-loggedin`);
-    await screenshot(page, `${articleIndex}-2-mbasic-page`);
+    await loadCookies(page, 'facebook');
 
-    // mbasic page may show "Write Post" link or have a composer form
-    const writePostLink = await page.evaluateHandle(() => {
-      const links = Array.from(document.querySelectorAll('a'));
-      return links.find(a => /write post|create post|write something/i.test(a.textContent || ''));
-    });
-    if (writePostLink && await writePostLink.asElement()) {
-      logger.info('🖱️ Clicking "Write Post"…');
-      await writePostLink.asElement().click();
-      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
-      await delay(2000, 3000);
-    }
-
-    // ── Step 3: Fill post content ────────────────────────────────
-    const content = buildPostContent(article);
-    logger.info('⌨️ Looking for post textarea…');
-
-    const textarea = await waitForSafe(page, 'textarea[name="xc_message"]', 10000)
-      || await waitForSafe(page, 'textarea', 5000);
-
-    if (!textarea) {
-      await screenshot(page, `${articleIndex}-ERR-no-textarea`);
-
-      const bodyText = await page.evaluate(() => (document.body?.innerText || '').substring(0, 2000));
-      logger.error(`❌ No textarea found on mbasic page. Body preview: ${bodyText.substring(0, 300)}`);
-      throw new Error('Could not find mbasic post textarea');
-    }
-
-    await textarea.click();
-    await delay(300, 500);
-    await textarea.type(content, { delay: 12 });
-    logger.info(`✅ Typed ${content.length} chars`);
-    await delay(1000, 2000);
-    await screenshot(page, `${articleIndex}-3-mbasic-content`);
-
-    // ── Step 4: Image upload (if available) ──────────────────────
-    if (article.localImagePath && await fs.pathExists(article.localImagePath)) {
-      try {
-        const fileInput = await page.$('input[type="file"][name="file1"]')
-          || await page.$('input[type="file"]');
-        if (fileInput) {
-          await fileInput.uploadFile(article.localImagePath);
-          logger.info('🖼️ Image attached via mbasic file input');
-          await delay(2000, 4000);
-        }
-      } catch (imgErr) {
-        logger.warn(`⚠️ mbasic image upload skipped: ${imgErr.message}`);
-      }
-    }
-
-    // ── Step 5: Submit the post ──────────────────────────────────
-    logger.info('🚀 Submitting post…');
-    const postBtn = await page.$('input[name="view_post"]')
-      || await page.$('input[type="submit"][value*="Post"]')
-      || await page.$('button[type="submit"]');
-
-    if (!postBtn) {
-      const submitFallback = await page.evaluateHandle(() => {
-        const inputs = Array.from(document.querySelectorAll('input[type="submit"]'));
-        return inputs.find(i => /post/i.test(i.value || ''));
-      });
-      if (submitFallback && await submitFallback.asElement()) {
-        await submitFallback.asElement().click();
-      } else {
-        await screenshot(page, `${articleIndex}-ERR-no-submit`);
-        throw new Error('Could not find mbasic submit/post button');
-      }
-    } else {
-      await postBtn.click();
-    }
-
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
+    // ── Step 1: Go to Facebook and verify session ────────────────
+    logger.info('🔗 Navigating to facebook.com…');
+    await page.goto('https://www.facebook.com/', { waitUntil: 'networkidle2', timeout: 60000 });
     await delay(3000, 5000);
-    await screenshot(page, `${articleIndex}-4-mbasic-posted`);
 
-    const afterUrl = page.url();
-    const afterBody = await page.evaluate(() => (document.body?.innerText || '').substring(0, 500));
-    if (afterUrl.includes('/composer') || afterBody.includes('error') || afterBody.includes('try again')) {
-      logger.warn(`⚠️ Post may have failed — URL: ${afterUrl}`);
-      throw new Error('mbasic post submission may have failed');
+    const url = page.url();
+    if (url.includes('/login') || url.includes('login.php')) {
+      throw new Error(
+        'Facebook session expired! Run `node setup.js` locally → login to Facebook → ' +
+        'then copy sessions/facebook.json to server.'
+      );
+    }
+    logger.info('✅ Facebook session valid (cookies working)');
+    await screenshot(page, `${articleIndex}-1-logged-in`);
+
+    // ── Step 2: Navigate to Facebook Page ────────────────────────
+    const pageUrl = process.env.FACEBOOK_PAGE_URL || `https://www.facebook.com/profile.php?id=${FB_PAGE_ID}`;
+    logger.info(`🔗 Opening Facebook Page: ${pageUrl.substring(0, 60)}…`);
+    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+    await delay(4000, 6000);
+    await screenshot(page, `${articleIndex}-2-page-loaded`);
+
+    // ── Step 3: Switch to posting as Page (if needed) ────────────
+    // Click the "Create post" / "What's on your mind" area on the Page
+    logger.info('🖱️ Looking for "Create post" on Page…');
+
+    const createPostClicked = await page.evaluate(() => {
+      // On a FB Page, there's usually a "Create post" button or "What's on your mind" prompt
+      const allEls = Array.from(document.querySelectorAll(
+        '[role="button"], span, div[role="button"], button'
+      ));
+      const target = allEls.find(el => {
+        const t = (el.textContent || '').trim().toLowerCase();
+        return (
+          t === 'create post' ||
+          t.includes("what's on your mind") ||
+          t.includes('write something') ||
+          t === 'write post'
+        );
+      });
+      if (target) { target.click(); return true; }
+      return false;
+    });
+
+    if (createPostClicked) {
+      logger.info('✅ Opened "Create post" dialog');
+      await delay(3000, 5000);
+    } else {
+      logger.warn('⚠️ "Create post" button not found — trying direct composer click…');
+      // Try clicking the placeholder text area (gray box at top of page timeline)
+      const placeholderClicked = await page.evaluate(() => {
+        const spans = Array.from(document.querySelectorAll('span'));
+        const ph = spans.find(s => {
+          const t = (s.textContent || '').toLowerCase();
+          return t.includes("what's on your mind") || t.includes('write something');
+        });
+        if (ph) { ph.click(); return true; }
+        return false;
+      });
+      if (placeholderClicked) {
+        await delay(3000, 5000);
+      }
+    }
+    await screenshot(page, `${articleIndex}-3-composer-open`);
+
+    // ── Step 4: Type content ─────────────────────────────────────
+    const content = buildPostContent(article);
+    logger.info('⌨️ Looking for post textbox…');
+
+    // Wait for the contenteditable post composer to appear
+    await delay(2000, 3000);
+    const textbox = await waitForSafe(page, '[role="textbox"][contenteditable="true"]', 15000);
+    if (!textbox) {
+      // Try all contenteditable fields, pick the visible one
+      const fallback = await page.evaluateHandle(() => {
+        const editors = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+        return editors.find(el => {
+          const r = el.getBoundingClientRect();
+          return r.width > 200 && r.height > 30 && r.top > 0;
+        });
+      });
+      if (!fallback || !(await fallback.asElement())) {
+        await screenshot(page, `${articleIndex}-ERR-no-textbox`);
+        throw new Error('Could not find Facebook post textbox. Run `node setup.js` and re-login.');
+      }
+      await fallback.asElement().click();
+      await delay(500, 1000);
+    } else {
+      await textbox.click();
+      await delay(500, 1000);
     }
 
-    logger.info(`🎉 Facebook post published via mbasic! Article ${articleIndex + 1}`);
+    // Paste content (faster + reliable for long text, same as LinkedIn)
+    await page.evaluate((t) => {
+      const el = document.activeElement;
+      if (el && (el.isContentEditable || el.getAttribute('role') === 'textbox')) {
+        el.focus();
+        document.execCommand('insertText', false, t);
+      }
+    }, content);
+    logger.info(`✅ Typed ${content.length} chars`);
+    await delay(2000, 3000);
+    await screenshot(page, `${articleIndex}-4-content-ready`);
+
+    // ── Step 5: Click Post/Publish ───────────────────────────────
+    logger.info('🚀 Looking for Post button…');
+    await delay(2000, 3000);
+
+    const posted = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('[role="button"], button'));
+      // Facebook www uses "Post" not "Publish"
+      const postBtn = btns.find(b => {
+        const t = (b.textContent || '').trim();
+        if (b.getAttribute('aria-disabled') === 'true') return false;
+        return /^Post$/i.test(t) || /^Publish$/i.test(t) || /^Share$/i.test(t);
+      });
+      if (postBtn) { postBtn.click(); return true; }
+      return false;
+    });
+
+    if (!posted) {
+      await screenshot(page, `${articleIndex}-ERR-no-post-btn`);
+      throw new Error('Could not find Post button');
+    }
+
+    logger.info('✅ Clicked Post button');
+    await delay(10000, 15000);
+    await screenshot(page, `${articleIndex}-5-published`);
+
     await saveCookies(page, 'facebook');
+    logger.info(`🎉 Facebook post published! Article ${articleIndex + 1}`);
     await markPosted(articleIndex, 'facebook', true);
     return true;
 
   } catch (err) {
-    logger.error(`❌ Facebook (mbasic) posting failed (article ${articleIndex}): ${err.message}`);
+    logger.error(`❌ Facebook posting failed (article ${articleIndex}): ${err.message}`);
     if (page) await screenshot(page, `${articleIndex}-FATAL-ERROR`);
     await markPosted(articleIndex, 'facebook', false, err.message);
     return false;
@@ -304,17 +253,16 @@ async function postViaMbasic(article, articleIndex) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Main entry: Graph API → mbasic browser
+//  Main entry
 // ════════════════════════════════════════════════════════════════════════════
 
 async function postToFacebook(article, articleIndex) {
   if (process.env.FACEBOOK_PAGE_ACCESS_TOKEN && process.env.FACEBOOK_PAGE_ID) {
     return postToFacebookGraph(article, articleIndex);
   }
-  return postViaMbasic(article, articleIndex);
+  return postViaWwwFacebook(article, articleIndex);
 }
 
-// ── Direct test ──────────────────────────────────────────────
 if (require.main === module) {
   const { getArticleByIndex } = require('../queue');
   const idx = parseInt((process.argv.find(a => a.startsWith('--index=')) || '--index=0').split('=')[1]);
