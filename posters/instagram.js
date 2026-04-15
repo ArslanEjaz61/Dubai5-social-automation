@@ -268,8 +268,47 @@ async function postToInstagram(article, articleIndex) {
       logger.warn('⚠️ Caption box not found — posting without caption');
     }
 
-    await delay(10000, 15000); // 👈 Increased delay: Instagram needs time to process the image/metadata
+    await delay(2000, 4000);
     await screenshot(page, `${articleIndex}-5-caption`);
+
+    // ── Enable Share to Facebook (Cross-post) ───────────────────
+    logger.info('🔗 Attempting to enable "Share to Facebook" toggle...');
+    try {
+      await page.evaluate(async () => {
+        const modal = document.querySelector('[role="dialog"]') || document.body;
+        // Find Advanced settings button
+        const advBtn = Array.from(modal.querySelectorAll('button, span, div')).find(el => 
+          el.textContent.trim() === 'Advanced settings'
+        );
+        
+        if (advBtn) {
+          advBtn.click();
+          await new Promise(r => setTimeout(r, 2000));
+          
+          // Find the Facebook cross-post toggle
+          // It usually contains "Facebook" in label or parent text
+          const allToggles = Array.from(modal.querySelectorAll('button[role="switch"], [role="checkbox"]'));
+          const fbToggle = allToggles.find(el => {
+            const labelText = (el.ariaLabel || el.innerText || el.parentElement?.innerText || '').toLowerCase();
+            return labelText.includes('facebook') || labelText.includes('share to');
+          });
+
+          if (fbToggle) {
+            const isChecked = fbToggle.getAttribute('aria-checked') === 'true' || fbToggle.classList.contains('x17qpheo'); // Check common IG toggle classes
+            if (!isChecked) {
+              fbToggle.click();
+              console.log('✅ Facebook toggle clicked ON');
+            } else {
+              console.log('ℹ️ Facebook toggle already ON');
+            }
+          }
+        }
+      });
+      await delay(2000, 3000);
+      await screenshot(page, `${articleIndex}-5b-advanced-settings`);
+    } catch (advErr) {
+      logger.warn(`⚠️ Could not enable Facebook cross-post: ${advErr.message}`);
+    }
 
     // ── Share ───────────────────────────────────────────────────
     logger.info('🚀 Sharing Instagram post...');
