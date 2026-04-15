@@ -8,6 +8,18 @@ const { loadCookies, saveCookies } = require('../setup');
 const { markPosted } = require('../queue');
 
 const FB_PAGE_URL = process.env.FACEBOOK_PAGE_URL || '';
+
+/** Meta Business Suite “Create post” URL — set in .env to match your Page composer. */
+function getComposerUrl() {
+  const fromEnv =
+    process.env.FACEBOOK_COMPOSER_URL ||
+    process.env.FACEBOOK_SUITE_URL ||
+    (FB_PAGE_URL.includes('business.facebook.com') ? FB_PAGE_URL : '');
+  if (fromEnv && /^https?:\/\//i.test(fromEnv.trim())) return fromEnv.trim();
+  const assetId = process.env.FACEBOOK_ASSET_ID || '970837422790775';
+  return `https://business.facebook.com/latest/composer/?asset_id=${assetId}&nav_ref=internal_nav&ref=biz_web_home_create_post&context_ref=HOME`;
+}
+
 const SCREENSHOTS_DIR = path.join(__dirname, '..', 'logs', 'screenshots', 'facebook');
 fs.ensureDirSync(SCREENSHOTS_DIR);
 
@@ -89,6 +101,7 @@ async function loginToFacebook(page) {
   await delay(400, 700);
 
   const passInput = await waitForSafe(page, '#pass', 5000);
+  if (!passInput) throw new Error('Facebook password field (#pass) not found');
   await passInput.click();
   await page.keyboard.type(password, { delay: 40 });
   await delay(400, 700);
@@ -104,6 +117,133 @@ async function loginToFacebook(page) {
 
   await saveCookies(page, 'facebook');
   logger.info('✅ Facebook login successful!');
+}
+
+/**
+ * Meta Suite composer often lives in an iframe; the first [role=textbox] on the page can be search.
+ * Prefer a large, visible contenteditable / textbox in composer (e.g. “Text” field).
+ */
+async function findComposerTextBox(page) {
+  const scoreNode = async (frame, el) => {
+    try {
+      const vis = await el.isVisible().catch(() => false);
+      if (!vis) return -1;
+      const box = await el.boundingBox();
+      if (!box || box.width < 100 || box.height < 36) return -1;
+      const meta = await frame.evaluate(
+        (node) => {
+          const lab = (node.getAttribute('aria-label') || '').toLowerCase();
+          const ph = (node.getAttribute('placeholder') || '').toLowerCase();
+          const role = node.getAttribute('role') || '';
+          let score = 0;
+          if (lab.includes('text') && !lab.includes('search')) score += 40;
+          if (lab.includes('post') || lab.includes('write')) score += 25;
+          if (ph.includes('write') || ph.includes('text')) score += 20;
+          if (role === 'textbox') score += 15;
+          if (node.isContentEditable) score += 10;
+          if (node.tagName === 'TEXTAREA') score += 8;
+          if (lab.includes('search')) score -= 100;
+          const r = node.getBoundingClientRect();
+          score += Math.min((r.width * r.height) / 8000, 25);
+          return score;
+        },
+        el
+      ).catch(() => -1);
+      return meta;
+    } catch (e) {
+      return -1;
+    }
+  };
+
+  const tryFrame = async (frame) => {
+    const sels = [
+      'div[role="textbox"][contenteditable="true"]',
+      '[role="textbox"][contenteditable="true"]',
+      'div[contenteditable="true"][spellcheck="true"]',
+      'div[data-lexical-editor="true"]',
+      'textarea:not([readonly]):not([disabled])',
+      '[role="textbox"]',
+      'div[contenteditable="true"]',
+    ];
+    let best = null;
+    let bestScore = -Infinity;
+    for (const sel of sels) {
+      const nodes = await frame.$$(sel).catch(() => []);
+      for (const node of nodes) {
+        const s = await scoreNode(frame, node);
+        if (s > bestScore) {
+          bestScore = s;
+          best = node;
+        }
+      }
+    }
+    return best != null && bestScore >= 5 ? best : null;
+  };
+
+  let el = await tryFrame(page.mainFrame());
+  if (el) return el;
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    if (frame.url() === 'about:blank') continue;
+    el = await tryFrame(frame);
+    if (el) return el;
+  }
+  return null;
+}
+
+async function waitForComposerTextBox(page, maxWaitMs = 90000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const el = await findComposerTextBox(page);
+    if (el) return el;
+    await delay(1500, 2500);
+  }
+  return null;
+}
+
+/** Paste long text on the given editor node (works when editor is inside an iframe). */
+async function typeIntoFacebookEditor(editorHandle, text) {
+  if (text.length > 80) {
+    await editorHandle.evaluate((node, t) => {
+      node.focus();
+      if (node.isContentEditable || node.getAttribute('role') === 'textbox') {
+        document.execCommand('insertText', false, t);
+      }
+    }, text);
+  } else {
+    await editorHandle.type(text, { delay: 18 });
+  }
+}
+
+async function clickPublishWhenReady(page, maxWaitMs = 90000) {
+  const tryClick = async (frame) => {
+    return frame.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+      const pub = btns.find((b) => {
+        const t = (b.textContent || '').trim().toLowerCase();
+        if (t !== 'publish') return false;
+        if (b.getAttribute('aria-disabled') === 'true') return false;
+        if (b.disabled) return false;
+        return true;
+      });
+      if (pub) {
+        pub.click();
+        return true;
+      }
+      return false;
+    }).catch(() => false);
+  };
+
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await tryClick(page.mainFrame())) return true;
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      if (await tryClick(frame)) return true;
+    }
+    await delay(600, 1000);
+  }
+  return false;
 }
 
 /** Build Facebook post content */
@@ -194,7 +334,8 @@ async function postToFacebook(article, articleIndex) {
 
   logger.info(`\n📘 Facebook (Meta Suite) → Article ${articleIndex + 1}: "${article.title.substring(0, 50)}..."`);
 
-  const FB_SUITE_URL = `https://business.facebook.com/latest/composer/?asset_id=970837422790775&nav_ref=internal_nav&ref=biz_web_home_create_post&context_ref=HOME`;
+  const FB_SUITE_URL = getComposerUrl();
+  logger.info(`🔗 Composer URL: ${FB_SUITE_URL.substring(0, 80)}…`);
 
   let browser, page;
   try {
@@ -204,14 +345,14 @@ async function postToFacebook(article, articleIndex) {
     await loadCookies(page, 'facebook');
     
     logger.info('🔗 Navigating to Meta Business Suite Composer...');
-    await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 60000 });
-    await delay(5000, 8000); // Suite is heavy, wait for it to settle
+    await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 90000 });
+    await delay(6000, 10000); // Suite is heavy, wait for it to settle
 
     if (!await isLoggedIn(page)) {
       logger.warn('⚠️ Facebook session expired — logging in...');
       await loginToFacebook(page);
-      await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 60000 });
-      await delay(5000, 8000);
+      await page.goto(FB_SUITE_URL, { waitUntil: 'networkidle2', timeout: 90000 });
+      await delay(6000, 10000);
     }
     
     logger.info('✅ Logged in to Meta Business Suite');
@@ -233,8 +374,7 @@ async function postToFacebook(article, articleIndex) {
         await page.mouse.click(loginWallInfo.x, loginWallInfo.y);
         await delay(3000, 5000);
         // Force navigate to SPECIFIC composer as ultimate fallback
-        const assetId = process.env.FACEBOOK_ASSET_ID || '970837422790775';
-        await page.goto(`https://business.facebook.com/latest/composer/?asset_id=${assetId}`, { waitUntil: 'networkidle2' });
+        await page.goto(getComposerUrl(), { waitUntil: 'networkidle2', timeout: 90000 });
         await delay(10000, 15000); // Suite login is slow
         await screenshot(page, `${articleIndex}-1b-after-suite-login`);
       }
@@ -292,46 +432,33 @@ async function postToFacebook(article, articleIndex) {
     }
 
     // ── Step 2: Type content ────────────────────────────────────
-    logger.info('⌨️ Typing post content...');
+    logger.info('⌨️ Finding Meta Suite text editor (may be inside iframe)…');
     const content = buildPostContent(article);
 
-    // Meta Suite uses an ARIA textbox
-    const textArea = await waitForSafe(page, '[role="textbox"]', 10000)
-      || await waitForSafe(page, 'div[contenteditable="true"]', 5000);
-
+    const textArea = await waitForComposerTextBox(page, 90000);
     if (!textArea) throw new Error('Could not find Facebook Suite text editor');
 
-    await textArea.focus();
-    await delay(500, 1000);
-    await page.keyboard.type(content, { delay: 20 });
-    logger.info(`✅ Typed ${content.length} chars`);
-    await delay(2000, 3000);
+    await textArea.evaluate((n) => n.scrollIntoView({ block: 'center', inline: 'nearest' }));
+    await textArea.click({ delay: 50 });
+    await delay(400, 800);
+    await typeIntoFacebookEditor(textArea, content);
+    logger.info(`✅ Entered ${content.length} chars in composer`);
+    await delay(2500, 4000);
     await screenshot(page, `${articleIndex}-3-content-ready`);
 
-    // ── Step 3: Publish ─────────────────────────────────────────
-    logger.info('🚀 Publishing Facebook post...');
-    
-    // Find the Publish button (it's often a div with text "Publish")
-    const publishBtn = await page.evaluateHandle(() => {
-      const btns = Array.from(document.querySelectorAll('div[role="button"]'));
-      return btns.find(b => {
-        const t = (b.textContent || '').trim().toLowerCase();
-        return t === 'publish' && !b.getAttribute('aria-disabled');
-      });
-    });
-
-    if (publishBtn) {
-      await page.evaluate(el => el.click(), publishBtn);
-      logger.info('✅ Clicked Publish button');
-      await delay(10000, 15000); // Wait for feedback
-      await screenshot(page, `${articleIndex}-4-published`);
-      logger.info(`🎉 Facebook (Meta Suite) post published! Article ${articleIndex + 1}`);
-      await markPosted(articleIndex, 'facebook', true);
-      return true;
-    } else {
+    // ── Step 3: Publish (enabled after text; scan main + iframes) ─
+    logger.info('🚀 Waiting for Publish to become enabled…');
+    const published = await clickPublishWhenReady(page, 90000);
+    if (!published) {
       await screenshot(page, `${articleIndex}-ERR-no-publish-btn`);
-      throw new Error('Could not find available Facebook Publish button');
+      throw new Error('Could not find enabled Facebook Publish button');
     }
+    logger.info('✅ Clicked Publish');
+    await delay(10000, 15000);
+    await screenshot(page, `${articleIndex}-4-published`);
+    logger.info(`🎉 Facebook (Meta Suite) post published! Article ${articleIndex + 1}`);
+    await markPosted(articleIndex, 'facebook', true);
+    return true;
 
   } catch (err) {
     logger.error(`❌ Facebook posting failed (article ${articleIndex}): ${err.message}`);
