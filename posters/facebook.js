@@ -179,10 +179,9 @@ async function postViaMbasic(article, articleIndex) {
   let browser, page;
   try {
     ({ browser, page } = await launchBrowser(true));
-    await loadCookies(page, 'facebook');
+    // Don't load old cookies — they cause mbasic to show "profile wall" instead of login form.
 
     // ── Step 1: Login ────────────────────────────────────────────
-    // Always do a fresh login via mbasic (profile-selection wall / stale session is unreliable)
     await loginViaMbasic(page);
     await screenshot(page, `${articleIndex}-1-mbasic-loggedin`);
 
