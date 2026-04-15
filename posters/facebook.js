@@ -102,13 +102,16 @@ const FB_PAGE_ID = process.env.FACEBOOK_ASSET_ID || '970837422790775';
 
 /**
  * Cookie sessions often land on “Quick login” with a Continue button — must click before feed/Page UI works.
+ * Facebook is a SPA: do not use waitForNavigation (it can hang ~90s each time and re-find Continue in a loop).
  */
 async function ensureWwwFacebookSessionReady(page) {
-  for (let round = 0; round < 8; round++) {
+  for (let round = 0; round < 2; round++) {
     const clicked = await page.evaluate(() => {
       const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
       const tryClick = (el) => {
         if (!el) return false;
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) return false;
         el.click();
         return true;
       };
@@ -128,14 +131,9 @@ async function ensureWwwFacebookSessionReady(page) {
       }
       return '';
     });
-    if (clicked) {
-      logger.info('🖱️ Confirmed Facebook session (Continue on account picker)');
-      await delay(3500, 6000);
-      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 }).catch(() => {});
-      await delay(2000, 3500);
-      continue;
-    }
-    break;
+    if (!clicked) break;
+    logger.info('🖱️ Confirmed Facebook session (Continue on account picker)');
+    await delay(6000, 9000);
   }
 }
 
