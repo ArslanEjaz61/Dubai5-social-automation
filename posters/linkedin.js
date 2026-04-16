@@ -175,25 +175,24 @@ async function postToLinkedIn(article, articleIndex) {
     if (!composerReady) {
       // Fallback: try clicking "Start a post" if the share param didn't auto-open composer
       logger.info('🔄 Composer not auto-opened — searching for Start a post prompt...');
-      const clickedStart = await page.evaluate(() => {
+      const buttonRect = await page.evaluate(() => {
         const els = Array.from(document.querySelectorAll('button, a, div[role="button"], span, p'));
         for (const el of els) {
           const text = (el.textContent || '').trim().toLowerCase();
-          // Match "Start a post" exactly or as a prefix
           if (text === 'start a post' || (text.startsWith('start a post') && text.length < 50)) {
             const target = el.closest('button') || el.closest('a') || el.closest('[role="button"]') || el;
             const rect = target.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              target.click();
-              return true;
+              return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
             }
           }
         }
-        return false;
+        return null;
       });
 
-      if (clickedStart) {
-        logger.info('🖱️ Clicked "Start a post" prompt, waiting for modal...');
+      if (buttonRect) {
+        logger.info(`🖱️ Clicking "Start a post" via coordinates (${buttonRect.x}, ${buttonRect.y})...`);
+        await page.mouse.click(buttonRect.x, buttonRect.y);
         await delay(5000, 7000);
         
         // Re-check for composer
@@ -203,12 +202,12 @@ async function postToLinkedIn(article, articleIndex) {
         }
         
         if (!composerReady) {
-          await screenshot(page, `${articleIndex}-ERR-no-composer-after-click`);
-          throw new Error('Composer did not open after clicking Start a post');
+          await screenshot(page, `${articleIndex}-ERR-no-composer-after-mouse-click`);
+          throw new Error('Composer did not open after coordinate-based click on Start a post');
         }
       } else {
-        await screenshot(page, `${articleIndex}-ERR-no-start-post-btn`);
-        throw new Error('Could not find Start a post button or composer');
+        await screenshot(page, `${articleIndex}-ERR-no-start-post-btn-found`);
+        throw new Error('Could not find Start a post button coordinates on analytics page');
       }
     }
 
