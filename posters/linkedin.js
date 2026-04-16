@@ -174,13 +174,14 @@ async function postToLinkedIn(article, articleIndex) {
 
     if (!composerReady) {
       // Fallback: try clicking "Start a post" if the share param didn't auto-open composer
-      logger.info('🔄 Composer not auto-opened — trying to click Start a post...');
+      logger.info('🔄 Composer not auto-opened — searching for Start a post prompt...');
       const clickedStart = await page.evaluate(() => {
-        const els = Array.from(document.querySelectorAll('button, a, div[role="button"], li, span'));
+        const els = Array.from(document.querySelectorAll('button, a, div[role="button"], span, p'));
         for (const el of els) {
-          const text = (el.textContent || '').trim();
-          if (text.startsWith('Start a post') && text.length < 80) {
-            const target = el.closest('li') || el.closest('a') || el.closest('button') || el;
+          const text = (el.textContent || '').trim().toLowerCase();
+          // Match "Start a post" exactly or as a prefix
+          if (text === 'start a post' || (text.startsWith('start a post') && text.length < 50)) {
+            const target = el.closest('button') || el.closest('a') || el.closest('[role="button"]') || el;
             const rect = target.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
               target.click();
@@ -192,17 +193,22 @@ async function postToLinkedIn(article, articleIndex) {
       });
 
       if (clickedStart) {
-        await delay(3000, 5000);
-        const retryReady = await page.evaluate(() => {
-          return !!document.querySelector('.ql-editor, [role="textbox"], [contenteditable="true"]');
-        });
-        if (!retryReady) {
-          await screenshot(page, `${articleIndex}-ERR-no-composer`);
+        logger.info('🖱️ Clicked "Start a post" prompt, waiting for modal...');
+        await delay(5000, 7000);
+        
+        // Re-check for composer
+        for (const sel of EDITOR_SELECTORS) {
+          const el = await waitForSafe(page, sel, 10000);
+          if (el) { composerReady = true; break; }
+        }
+        
+        if (!composerReady) {
+          await screenshot(page, `${articleIndex}-ERR-no-composer-after-click`);
           throw new Error('Composer did not open after clicking Start a post');
         }
       } else {
-        await screenshot(page, `${articleIndex}-ERR-no-composer`);
-        throw new Error('Could not open post composer on company page');
+        await screenshot(page, `${articleIndex}-ERR-no-start-post-btn`);
+        throw new Error('Could not find Start a post button or composer');
       }
     }
 
